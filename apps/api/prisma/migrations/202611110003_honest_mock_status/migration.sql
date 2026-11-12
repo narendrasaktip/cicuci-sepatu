@@ -1,0 +1,6 @@
+-- AlterTable
+ALTER TABLE `NotificationEvent` MODIFY `status` ENUM('SIMULATED', 'PENDING', 'PROCESSING', 'SENT', 'FAILED', 'SKIPPED') NOT NULL DEFAULT 'PENDING';
+
+-- AlterTable
+ALTER TABLE `NotificationAttempt` MODIFY `status` ENUM('SIMULATED', 'PENDING', 'PROCESSING', 'SENT', 'FAILED', 'SKIPPED') NOT NULL;
+

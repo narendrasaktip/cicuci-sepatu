@@ -1,0 +1,55 @@
+
+---
+description: Core engineering rules for Cicuci Sepatu System
+alwaysApply: true
+---
+
+# Engineering Rules
+
+## Tech Stack
+- Vue 3 + Vite + TypeScript for frontend.
+- Node.js + Express + TypeScript for backend.
+- MySQL 8 + Prisma for database.
+- Tailwind CSS for styling.
+- Redis + BullMQ for background jobs.
+
+## Architecture
+- Use a monorepo with apps/web and apps/api.
+- Separate controllers, services, repositories, and integrations.
+- Keep business logic out of UI components.
+- Validate all API inputs using Zod.
+- Use environment variables for secrets.
+- Never hardcode credentials.
+
+## Business Rules
+- One order can contain multiple shoes.
+- Each shoe has independent inspection, price, photos, and status.
+- Shoes requiring risk approval cannot enter washing before consent.
+- Completed inspections establish final price automatically; no mandatory separate price agreement. Record staff verification, never fabricate customer approval. Preserve historical agreements/payments; validate old FINAL eligibility without backfill. Risk consent remains explicit.
+- Rejected shoes have zero cleaning fees.
+- Order status must be derived from its items when applicable.
+- Every status transition must be validated and logged.
+- Payment status is separate from laundry status.
+- Customer tracking must use an unpredictable access token.
+
+## WhatsApp
+- Never send WhatsApp messages directly from controllers.
+- Use a notification queue and provider adapter.
+- Prevent duplicate notifications.
+- Record delivery attempts and failures.
+- Initial mock development fulfilled. Operational WhatsApp uses only whatsapp-web.js (owner-authorized). Fakes belong only in tests; preserve historical mock records without replay.
+
+## Quality
+- Enable TypeScript strict mode.
+- Add tests for critical business workflows.
+- Never silently swallow errors.
+- Do not remove existing features without approval.
+- Do not modify database schema without a migration.
+- Do not claim a feature works without validating it.
+
+## Development Workflow
+1. Read .roo/docs/PRD.md before implementation.
+2. Plan changes and identify affected modules.
+3. Implement one feature at a time.
+4. Run typecheck, lint, and relevant tests.
+5. Summarize changes, tests, and known limitations.

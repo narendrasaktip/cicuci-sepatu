@@ -1,0 +1,32 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+var/
+coverage/
+.DS_Store
+
+# Browser reports can contain fixture credentials and bearer tokens.
+test-results/
+playwright-report/
+
+# Defense in depth: never commit WhatsApp browser profiles/cache.
+**/.wwebjs_auth/
+**/.wwebjs_cache/
+
+# Local runtime data, exports, backups, and browser test artifacts.
+test-results*/
+playwright-report*/
+*.log
+*.sql.gz
+*.dump
+*.bak
+*.backup
+*.sqlite
+*.sqlite3
+*.db
+backups/
+uploads/
+photos/
+references/tabler/

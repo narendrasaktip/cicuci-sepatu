@@ -1,0 +1,39 @@
+{
+  "name": "cicuci-sepatu",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev:api": "npm run dev -w apps/api",
+    "dev:web": "npm run dev -w apps/web",
+    "worker": "npm run worker -w apps/api",
+    "typecheck": "npm run typecheck --workspaces",
+    "lint": "eslint .",
+    "test": "npm run test -w apps/api",
+    "build": "npm run build --workspaces",
+    "db:generate": "npm run db:generate -w apps/api",
+    "db:deploy": "npm run db:deploy -w apps/api",
+    "db:seed": "npm run db:seed -w apps/api"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "eslint-plugin-vue": "^9.0.0",
+    "typescript-eslint": "^8.0.0",
+    "vue-eslint-parser": "^9.0.0",
+    "typescript": "~5.7.3"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.0",
+    "@prisma/config": {
+      "deepmerge-ts": "^8.0.0"
+    },
+    "puppeteer": "25.17.0",
+    "archiver": "8.0.0",
+    "minimatch": "^11.0.1"
+  }
+}

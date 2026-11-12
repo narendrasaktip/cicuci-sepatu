@@ -1,0 +1,1 @@
+ALTER TABLE `AuditLog` ADD COLUMN `entityType` VARCHAR(100) NULL, ADD COLUMN `metadata` JSON NULL;

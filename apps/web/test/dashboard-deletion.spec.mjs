@@ -1,0 +1,68 @@
+import process from 'node:process';
+import { test, expect } from '@playwright/test';
+
+test.use({ serviceWorkers: 'block', launchOptions: { executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' } });
+for (const presentation of ['classic', 'new']) test(`new dashboard follows deletion with stored ${presentation} preference`, async ({ page, context }) => {
+  const order = (id, aggregateStatus) => ({ id, number: `TEST-${id}`, aggregateStatus, itemCount: 1, customer: { name: 'Fixture' }, estimatedCompletionAt: '2020-01-01T00:00:00Z', totalIdr: id === 'paid' ? 50000 : 0, balanceIdr: 0, paymentStatus: id === 'paid' ? 'PAID' : 'UNPAID' });
+  let orders = [order('inspection', 'WAITING_INSPECTION'), order('notifications', 'IN_PROGRESS'), order('paid', 'READY_FOR_PICKUP')];
+  const ledger = [{ id: 'payment', orderId: 'paid', originalOrderId: 'paid', originalOrderNumber: 'TEST-paid', kind: 'PAYMENT', amountIdr: 60000 }, { id: 'refund', orderId: 'paid', originalOrderId: 'paid', originalOrderNumber: 'TEST-paid', kind: 'REFUND', amountIdr: 10000 }];
+  const evidence = structuredClone(ledger);
+  const unexpected = [], deletions = [];
+  let dashboardReads = 0, hold = false, release;
+  const metricValues = () => ({ activeOrders: orders.length, waitingInspection: orders.filter(o => o.id === 'inspection').length, awaitingConsent: 0, inProgress: orders.filter(o => o.id === 'notifications').length, readyForPickup: orders.filter(o => o.id === 'paid').length, overdue: orders.length, revenueIdr: ledger.filter(p => orders.some(o => o.id === p.orderId)).reduce((n, p) => n + (p.kind === 'REFUND' ? -p.amountIdr : p.amountIdr), 0) });
+  await context.addInitScript(value => localStorage.setItem('cicuci-presentation', value), presentation);
+  await context.route('**/api/**', async route => {
+    const req = route.request(), path = new URL(req.url()).pathname.replace('/api/v1', '');
+    let body;
+    if (req.method() === 'GET' && path === '/display-settings') body = { statusLabels: {} };
+    else if (req.method() === 'GET' && path === '/auth/me') body = { user: { id: 'owner', name: 'Owner', role: 'OWNER' }, csrfToken: 'fixture-only' };
+    else if (req.method() === 'GET' && path === '/dashboard') {
+      dashboardReads++;
+      if (hold) await new Promise(resolve => { release = resolve; });
+      body = metricValues();
+    } else if (req.method() === 'GET' && path === '/orders') body = { data: orders, page: { nextCursor: null } };
+    else if (req.method() === 'DELETE' && path.startsWith('/orders/')) {
+      deletions.push({ path, body: req.postDataJSON() });
+      if (path === '/orders/notifications') return route.fulfill({ status: 409, json: { error: { code: 'NOTIFICATION_IN_PROGRESS' } } });
+      for (const entry of ledger) if (path === `/orders/${entry.orderId}`) entry.orderId = null;
+      orders = orders.filter(o => path !== `/orders/${o.id}`);
+      body = { id: path.split('/').at(-1), deleted: true };
+    } else unexpected.push(req.method() + ' ' + path);
+    await route.fulfill({ status: body === undefined ? 501 : 200, json: body ?? { error: { code: 'UNMOCKED' } } });
+  });
+  const metrics = page.getByRole('region', { name: 'Metrik operasional' });
+  const metric = name => metrics.locator('div').filter({ has: page.getByText(name, { exact: true }) }).locator('strong');
+  const trash = id => page.getByRole('button', { name: `Hapus pesanan TEST-${id}`, exact: true });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${process.env.TEST_WEB_ORIGIN ?? 'http://127.0.0.1:5173'}/admin`);
+  await expect(metric('Pesanan aktif')).toHaveText('3');
+  await expect(metric('Sepatu menunggu inspeksi')).toHaveText('1');
+  const revenue = await metric('Penerimaan bersih').textContent();
+  hold = true;
+  await trash('inspection').click();
+  await expect.poll(() => dashboardReads).toBe(2);
+  await expect(metrics.locator('strong')).toHaveCount(0);
+  hold = false; release();
+  await expect(metric('Pesanan aktif')).toHaveText('2');
+  await expect(metric('Sepatu menunggu inspeksi')).toHaveText('0');
+  await expect(metric('Pesanan terlambat')).toHaveText('2');
+  await expect(page.getByRole('button', { name: 'TEST-inspection', exact: true })).toHaveCount(0);
+  await trash('notifications').click();
+  await expect(page.getByRole('alert')).toContainText('NOTIFICATION_IN_PROGRESS');
+  await expect(metric('Pesanan aktif')).toHaveText('2');
+  await expect(metric('Sepatu siap diambil')).toHaveText('1');
+  await expect(metric('Penerimaan bersih')).toHaveText(revenue);
+  await page.getByRole('navigation', { name: 'Navigasi utama' }).getByRole('button', { name: 'Pesanan', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Terapkan / muat ulang', exact: true })).toBeEnabled();
+  await trash('paid').click();
+  await expect(page.getByRole('button', { name: 'TEST-paid', exact: true })).toHaveCount(0);
+  await page.getByRole('navigation', { name: 'Navigasi utama' }).getByRole('button', { name: 'Dashboard', exact: true }).click();
+  await expect(metric('Pesanan aktif')).toHaveText('1');
+  await expect(metric('Sepatu diproses')).toHaveText('1');
+  await expect(metric('Sepatu siap diambil')).toHaveText('0');
+  await expect(metric('Penerimaan bersih')).toHaveText(/Rp\s*0/);
+  expect(ledger).toEqual(evidence.map(p => ({ ...p, orderId: null })));
+  expect(deletions.map(d => d.path)).toEqual(['/orders/inspection', '/orders/notifications', '/orders/paid']);
+  for (const deletion of deletions) expect(deletion.body).toEqual({ confirmed: true, confirmation: 'HAPUS' });
+  expect(unexpected).toEqual([]);
+});
