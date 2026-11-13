@@ -10,7 +10,8 @@ function choose() { const item = templates.value.find(t => t.event === selected.
 async function run(task: () => Promise<void>) { busy.value = true; error.value = ''; try { await task(); } catch (e) { error.value = e instanceof Error ? e.message : 'Permintaan gagal.'; } finally { busy.value = false; } }
 onMounted(() => run(async () => {
   const data = await api<{ templates: Template[]; placeholders: Record<string, string>; localOnly: boolean; encryptionReady: boolean }>('/whatsapp-templates');
-  templates.value = data.templates; placeholders.value = data.placeholders; localOnly.value = data.localOnly; encryptionReady.value = data.encryptionReady; selected.value = data.templates[0]?.event ?? ''; choose();
+  // ponytail: hide intake and legacy-only stages; restore when exposed as normal workflow actions.
+  templates.value = data.templates.filter(t => !['RECEIVED', 'INSPECTION', 'PACKING', 'QC'].includes(t.event)); placeholders.value = data.placeholders; localOnly.value = data.localOnly; encryptionReady.value = data.encryptionReady; selected.value = templates.value[0]?.event ?? ''; choose();
 }));
 function showPreview() { return run(async () => { if (!draft.value) return; const result = await api<{ message: string }>('/whatsapp-templates/preview', 'POST', draft.value); preview.value = result.message; }); }
 function save() { return run(async () => { if (!draft.value) return; const result = await api<Template>('/whatsapp-templates', 'PATCH', draft.value); templates.value = templates.value.map(t => t.event === result.event ? result : t); notice.value = 'Template tersimpan. Berlaku hanya untuk event baru; tidak mengirim pesan atau mengaktifkan WhatsApp.'; }); }

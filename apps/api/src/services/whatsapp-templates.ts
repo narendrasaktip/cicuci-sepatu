@@ -10,7 +10,7 @@ export const eventNames = {
 } as const;
 export const placeholderHelp = {
   sapaan: 'Sapaan pelanggan (Kak/Pak/Bu)', nama_pelanggan: 'Nama pelanggan', total_sepatu: 'Jumlah seluruh sepatu pada pesanan',
-  detail_sepatu: 'Daftar seluruh sepatu dan layanan (tanpa catatan internal)', nomor_pesanan: 'Nomor pesanan',
+  detail_sepatu: 'Daftar seluruh sepatu (tanpa catatan internal)', nomor_pesanan: 'Nomor pesanan',
   url_tracking: 'Tautan privat; permintaan persetujuan menyertakan aksi sekali pakai',
   sepatu: 'Sepatu terkait event; seluruh sepatu untuk penerimaan pesanan',
 } as const;
@@ -28,7 +28,7 @@ const updates: Record<keyof typeof eventNames, string> = {
   RETURN_PENDING: '{sepatu} akan dikembalikan tanpa pencucian. Biaya pencucian sepatu tersebut Rp0.',
   RETURNED: '{sepatu} sudah dikembalikan tanpa pencucian. Biaya pencucian sepatu tersebut Rp0.',
 };
-export const defaults = Object.entries(eventNames).map(([event, name]) => ({ event, name, body: `Halo {sapaan} {nama_pelanggan},\n\n${updates[event as keyof typeof updates]}\n\n{detail_sepatu}\n\nPantau pesanan: {url_tracking}\n\nCicuci Sepatu` }));
+export const defaults = Object.entries(eventNames).map(([event, name]) => ({ event, name, body: event === 'ORDER_RECEIVED' ? `Halo {sapaan} {nama_pelanggan},\n\nTerima kasih sudah mempercayakan sepatu Anda kepada Cicuci Sepatu. Pesanan Anda sudah kami terima.\n\n*Rincian pesanan*\nNomor pesanan: {nomor_pesanan}\nJumlah: {total_sepatu} pasang\n\n{detail_sepatu}\n\nKami akan memeriksa kondisi sepatu sebelum pengerjaan.\n\n*Pantau pesanan Anda:*\n{url_tracking}\n\n_Terima kasih telah memilih Cicuci Sepatu._` : `Halo {sapaan} {nama_pelanggan},\n\n${updates[event as keyof typeof updates]}\n\n{detail_sepatu}\n\nPantau pesanan: {url_tracking}\n\nCicuci Sepatu` }));
 // Reject control characters at the message trust boundary.
 // eslint-disable-next-line no-control-regex
 const cleanText = (value: string) => !/[\u0000-\u0008\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/u.test(value);
@@ -67,4 +67,4 @@ export function trackingLink(origin: string, token: string, approval = '', itemI
   if (approval) { z.string().regex(/^[a-f0-9]{64}$/).parse(approval); url.hash = new URLSearchParams({ approval, item: itemId }).toString(); }
   return url.href;
 }
-export const previewValues: Values = { sapaan: 'Kak', nama_pelanggan: 'Dina (contoh)', total_sepatu: '2', detail_sepatu: '• Sepatu Contoh Biru — Deep Clean\n• Sepatu Contoh Putih — Basic Clean', nomor_pesanan: 'CONTOH-001', sepatu: 'Sepatu Contoh Biru', url_tracking: '[tautan privat pelanggan — contoh, tidak aktif]' };
+export const previewValues: Values = { sapaan: 'Kak', nama_pelanggan: 'Dina (contoh)', total_sepatu: '2', detail_sepatu: '• Sepatu Contoh Biru\n• Sepatu Contoh Putih', nomor_pesanan: 'CONTOH-001', sepatu: 'Sepatu Contoh Biru', url_tracking: '[tautan privat pelanggan — contoh, tidak aktif]' };

@@ -9,7 +9,7 @@ test('all emitted events: Indonesian defaults, literal substitution, strict plac
   for (const definition of defaults) {
     templateWrite.parse(definition);
     const rendered = renderTemplate(definition.body, previewValues);
-    assert.match(rendered, /Cicuci Sepatu/); assert.match(rendered, /Dina/); assert.match(rendered, /Deep Clean/);
+    assert.match(rendered, /Cicuci Sepatu/); assert.match(rendered, /Dina/); assert.match(rendered, /Sepatu Contoh Biru/); assert.doesNotMatch(rendered, /Deep Clean|Basic Clean/);
     assert.doesNotMatch(rendered, /\{[a-z_]+\}|ORDER_RECEIVED|CONSENT_REQUEST/);
   }
   const body = defaults[0]!.body;
@@ -47,7 +47,7 @@ test('outbox snapshots multiple shoes safely; consent link encrypted, snapshots 
     await notify(tx as never, 'order', 'ORDER_RECEIVED', 'receipt');
     const first = created!; assert.equal(first.status, 'PENDING');
     const payload = deliveryPayload.parse(unseal(String(first.encryptedMessage)));
-    assert.match(payload.message, /2 pasang/); assert.match(payload.message, /• Brand1 Model Biru — Deep Clean/); assert.match(payload.message, /• Brand2 Model Putih — Basic Clean/); assert.match(payload.message, new RegExp(raw));
+    assert.match(payload.message, /Jumlah: 2 pasang/); assert.match(payload.message, /\*Rincian pesanan\*/); assert.match(payload.message, /_Terima kasih telah memilih Cicuci Sepatu\._/); assert.match(payload.message, /• Brand1 Model Biru/); assert.match(payload.message, /• Brand2 Model Putih/); assert.doesNotMatch(payload.message, /Deep Clean|Basic Clean/); assert.match(payload.message, new RegExp(raw));
     assert.doesNotMatch(payload.message, /PRIVATE/); assert.doesNotMatch(JSON.stringify(audits), /Dina|Brand1|cdcd|efef/);
     assert.doesNotMatch(String(first.message), /cdcd|Dina/);
     saved = ['ORDER_RECEIVED', 'CONSENT_REQUEST', 'WASHING', 'READY_FOR_PICKUP'].map(event => {

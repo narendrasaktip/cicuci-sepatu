@@ -102,7 +102,7 @@ export async function notify(tx: Tx, orderId: string, template: string, key: str
     const shoe = (i: typeof order.items[number]) => [i.brand, i.model, i.color].map(customerText).join(' ');
     let rendered = renderTemplate(definition.body, {
       sapaan: order.customer.salutation ?? 'Kak', nama_pelanggan: customerText(order.customer.name), total_sepatu: String(order.items.length), nomor_pesanan: order.number,
-      detail_sepatu: order.items.map(i => `• ${shoe(i)} — ${customerText(i.serviceName)}`).join('\n'),
+      detail_sepatu: order.items.map(i => `• ${shoe(i)}`).join('\n'),
       sepatu: itemId ? shoe(order.items.find(i => i.id === itemId)!) : 'seluruh sepatu pada pesanan',
       url_tracking: trackingLink((await readDisplaySettings(tx, config.APP_BASE_URL)).publicOrigin, raw),
     });
