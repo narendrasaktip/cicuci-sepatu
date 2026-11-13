@@ -16,7 +16,7 @@ for (const width of [320, 390, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(origin);
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Sepatu Kotor?');
-    for (const name of ['Perawatan untuk Sepatu Kesayanganmu', 'Prosesnya Gampang Banget!', 'Siap Bikin Sepatumu Fresh Lagi?']) await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
+    for (const name of ['Layanan Cicuci Sepatu', 'Cara Kerja', 'Yuk, Cicuci-in Sepatumu!']) await expect(page.getByRole('heading', { name })).toBeVisible();
     await expect(page.getByText('Kontak WhatsApp belum tersedia.', { exact: false })).toBeVisible();
     await expect(page.locator('a[href^="https://wa.me/"]')).toHaveCount(0);
     await expect(page.locator('header a[href^="/admin"], footer a[href^="/admin"]')).toHaveCount(0);

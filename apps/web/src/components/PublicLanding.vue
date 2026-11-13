@@ -175,6 +175,13 @@ const year = new Date().getFullYear();
 @media(max-width:380px){.hero-grid{min-height:420px}.hero h1{font-size:34px;max-width:270px}.hero-art{width:67%;right:-62px;top:55px}.hero p{max-width:180px}.hero-actions .btn{width:188px}.service h3{font-size:12px}.service p{font-size:10px}}
 @media(min-width:701px) and (max-width:900px){.navlinks{gap:11px}.hero-art{min-height:340px}}
 
+.site .notice { color: #415f7d; font-weight: 400; }
+.site a { transition: color .2s ease, background-color .2s ease, box-shadow .2s ease; }
+.site a:hover { text-decoration: none; }
+.site .navlinks a:hover, .site .mobile-menu a:hover, .site .notice a:hover { color: #2873ad; }
+.site .notice a { text-decoration: underline; text-underline-offset: .2em; }
+.site .navcta:hover, .site .btn.primary:hover { background-color: #19477f; box-shadow: 0 8px 20px #102f5c38; }
+.site .btn:not(.primary):hover, .site .bottom a:hover { background-color: #d8ecff; }
 .site a:focus-visible, .site button:focus-visible, .site summary:focus-visible { outline: 3px solid #e18b00; outline-offset: 3px; }
 .brand img { object-fit: contain; object-position: center; }
 /* Layout refinement: no overlapping copy, illustration, or floating cards */
