@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { registerHooks } from 'node:module';
 process.env.DATABASE_URL = 'mysql://test:test@127.0.0.1:3306/test';
 process.env.REDIS_URL = 'redis://127.0.0.1:6379';
 process.env.APP_BASE_URL = 'http://localhost:5173';
+const hooks = registerHooks({ resolve(s, context, next) {
+  if (s.endsWith('/lib/db.js')) return { url: 'data:text/javascript,export const db={auditLog:{create:async()=>({})}};', shortCircuit: true };
+  return next(s, context);
+} });
 const { app } = await import('../src/app.js');
+hooks.deregister();
 test('HTTP boundaries without external services', async () => {
   const server = app.listen(0, '127.0.0.1');
   await new Promise<void>(resolve => server.once('listening', resolve));

@@ -45,10 +45,10 @@ export async function optimizeImage(content: Buffer) {
       .webp({ quality: 85 }).toBuffer(); // Metadata stripped by default; never keep the original on failure.
   } catch { throw new ApiError(400, 'UPLOAD_INVALID'); }
 }
-export async function uploadPhoto(tx: Tx, id: string, input: { kind: 'BEFORE' | 'INSPECTION' | 'AFTER'; customerVisible: boolean; mime: 'image/png' | 'image/jpeg'; base64: string }, actor: Actor) {
+export async function uploadPhoto(tx: Tx, id: string, input: { kind: 'BEFORE' | 'INSPECTION' | 'FINDINGS' | 'AFTER'; customerVisible: boolean; mime: 'image/png' | 'image/jpeg'; base64: string }, actor: Actor) {
   const original = validateImage(input.base64, input.mime); const item = await ownedItem(tx, id, actor);
   check(!['HANDED_OVER', 'RETURNED'].includes(item.status), 'ITEM_CLOSED');
-  check(item.photos.length < 20, 'PHOTO_LIMIT'); check(input.kind !== 'INSPECTION' || !input.customerVisible, 'PRIVATE_INSPECTION', 400);
+  check(item.photos.filter(photo => photo.kind === input.kind).length < 10, 'PHOTO_LIMIT'); check(input.kind !== 'INSPECTION' || !input.customerVisible, 'PRIVATE_INSPECTION', 400);
   const content = await optimizeImage(original);
   const photo = await tx.photo.create({ data: { itemId: id, kind: input.kind, mime: 'image/webp', customerVisible: input.customerVisible, content }, select: { id: true, kind: true, mime: true, customerVisible: true } });
   await audit(tx, actor.id, 'PHOTO_UPLOADED', photo.id); return photo;

@@ -1,10 +1,12 @@
 # Cicuci Sepatu — MVP operasional
 
-Vue 3 + Express strict TypeScript, Prisma/MySQL, Redis/BullMQ. UI operasional Bahasa Indonesia; pelacakan pelanggan tanpa akun. Tidak ada pengiriman WhatsApp nyata.
+[Panduan release lokal → GitHub → VPS](docs/PANDUAN_RELEASE.md): gate produksi, backup, migrasi, health dan rollback. Panduan ini membedakan snapshot VPS dari prosedur yang belum tervalidasi.
+
+Vue 3 + Express strict TypeScript, Prisma/MySQL, Redis/BullMQ. UI operasional Bahasa Indonesia; pelacakan pelanggan tanpa akun. Pengiriman WhatsApp nyata memerlukan aktivasi owner dan belum diuji end-to-end.
 
 ## Setup lokal
 
-Prasyarat: Node.js 20.19+, npm, MySQL 8 (validasi lokal juga memakai MariaDB 10.4 XAMPP), Redis 7+.
+Prasyarat: Node.js 22.12+ (Node 24 disarankan), npm, MySQL 8 (validasi lokal juga memakai MariaDB 10.4 XAMPP), Redis 7+.
 
 1. Jalankan `npm install`.
 2. Salin `.env.example` ke `.env` hanya pada instalasi baru; jangan timpa konfigurasi lokal yang sudah bekerja. Ganti password contoh, isi kredensial database serta `OWNER_EMAIL` dan `OWNER_PASSWORD` minimal 12 karakter.
@@ -71,7 +73,7 @@ Tes integrasi membutuhkan API/Vite/MySQL berjalan; tes queue membutuhkan Redis/w
 - Rate limit process-local; dashboard agregasi masih dalam memori. Gunakan Redis limiter/SQL aggregate saat scale-out/volume meningkat.
 - Pembatasan pilihan 100 record pada beberapa layar owner; admin assignment memakai user ID tervalidasi. Tidak ada scheduler reminder, editor template, payment gateway atau jaminan delivery WhatsApp produksi.
 - Browser Chromium diuji; belum audit screen-reader menyeluruh, Firefox/WebKit, load test atau deployment produksi. Cakupan negatif/RBAC mendalam berada pada suite backend, bukan seluruhnya browser.
-- Workspace bukan repository Git; pemeriksaan diff Git tidak tersedia.
+- Status repository dan tujuan remote harus diperiksa sebelum setiap publikasi.
 
 Panduan frontend dan batas UI: [apps/web/README.md](apps/web/README.md).
 

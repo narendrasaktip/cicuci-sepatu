@@ -1,1 +1,1 @@
-export type WhatsAppMessage = { eventKey: string; recipient: string; message: string };
+export type WhatsAppMessage = { eventKey: string; recipient: string; message: string; qr?: boolean };

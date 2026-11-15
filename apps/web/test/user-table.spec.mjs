@@ -5,7 +5,7 @@ test.use({ serviceWorkers: 'block', launchOptions: { executablePath: '/Applicati
 for (const width of [320, 390, 1440]) test(`compact users, actions, search, Classic ${width}`, async ({ page, context }, info) => {
   const users = [
     { id: 'owner', name: 'Owner', email: 'owner@example.test', role: 'OWNER', isActive: true },
-    { id: 'staff', name: 'NamaPanjang'.repeat(10), email: 'emailpanjang'.repeat(8) + '@example.test', role: 'STAFF', isActive: false },
+    { id: 'staff-id-panjang', name: 'NamaPanjang'.repeat(10), email: 'emailpanjang'.repeat(8) + '@example.test', role: 'STAFF', isActive: false },
   ];
   const unexpected = [], mutations = [], queries = [];
   await context.route('**/api/**', async route => {
@@ -19,7 +19,7 @@ for (const width of [320, 390, 1440]) test(`compact users, actions, search, Clas
       body = { data: users.filter(u => (u.name + u.email).includes(q)), page: { nextCursor: null } };
     } else if (req.method() === 'PATCH' && path === '/users/owner') {
       body = users[0];
-    } else if (req.method() === 'DELETE' && path === '/users/staff') {
+    } else if (req.method() === 'DELETE' && path === '/users/staff-id-panjang') {
       mutations.push(req.postDataJSON());
       return route.fulfill({ status: 409, json: { error: { message: 'USER_HAS_HISTORY' } } });
     } else unexpected.push(req.method() + ' ' + path);
@@ -33,7 +33,9 @@ for (const width of [320, 390, 1440]) test(`compact users, actions, search, Clas
   await page.getByRole('navigation').getByRole('button', { name: 'Pengguna', exact: true }).click();
   const table = page.locator('.user-table');
   await expect(table.locator('thead th')).toHaveText(['ID', 'Nama', 'Email', 'Peran', 'Status', 'Aksi']);
-  await expect(table.locator('tbody td:first-child')).toHaveText(['owner', 'staff']);
+  await expect(table.locator('tbody td:first-child')).toHaveText(['…wner', '…jang']);
+  await expect(table.locator('tbody td:first-child span').last()).toHaveAttribute('title', 'staff-id-panjang');
+  await expect(page.getByRole('button', { name: 'Pengguna Baru', exact: true })).toBeVisible();
   await expect(table.getByText('Detail teknis', { exact: true })).toHaveCount(0);
   await expect(table.getByRole('rowheader')).toHaveCount(2);
   await expect(table.locator('tbody tr').first().locator('td:last-child').getByText('Akun Anda', { exact: true })).toBeVisible();

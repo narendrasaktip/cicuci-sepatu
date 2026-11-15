@@ -5,7 +5,7 @@ import { packageRates, packageTotal } from '../src/services/pricing.js';
 
 test('smart intake HTTP: canonical identity, omitted service, explicit validation, replay, legacy, roles; isolated persistence', async () => {
   process.env.DATABASE_URL = 'mysql://fake:fake@127.0.0.1:1/fake';
-  process.env.REDIS_URL = 'redis://127.0.0.1:1'; process.env.APP_BASE_URL = 'http://example.test';
+  process.env.REDIS_URL = 'redis://127.0.0.1:1'; process.env.APP_BASE_URL = 'https://example.test';
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   type Row = Record<string, any>; // Test-only in-memory Prisma rows.
   const services = new Map<string, Row>([['historical', { id: 'historical', name: 'Unrelated restoration', basePriceIdr: 900000, isActive: true }]]);
@@ -14,6 +14,7 @@ test('smart intake HTTP: canonical identity, omitted service, explicit validatio
   const cache = new Map<string, Row>();
   const fake = {
     session: { findUnique: async () => ({ user: { id: 'owner', role, isActive: true }, csrfToken: 'csrf', expiresAt: new Date('2100-01-01') }) },
+    user: { findUnique: async () => ({ role, isActive: true }) },
     customer: { count: async () => 1 },
     service: {
       findUnique: async ({ where }: Row) => services.get(where.id),
@@ -46,7 +47,7 @@ test('smart intake HTTP: canonical identity, omitted service, explicit validatio
   const hooks = registerHooks({ resolve(s, context, next) {
     if (s.endsWith('/controllers/whatsapp.js')) return { url: 'data:text/javascript,export const whatsapp=(_req,_res,next)=>next();', shortCircuit: true };
     if (s.endsWith('/lib/db.js')) return { url: 'data:text/javascript,export const db=globalThis[Symbol.for("cicuci.internal.test")];', shortCircuit: true };
-    if (s.endsWith('/lib/whatsapp-control.js')) return { url: 'data:text/javascript,export async function notificationBlocker(){throw new Error("Forbidden WhatsApp access");}', shortCircuit: true };
+    if (s.endsWith('/lib/whatsapp-control.js')) return { url: 'data:text/javascript,export function workerSnapshot(){throw new Error("Forbidden WhatsApp access");} export async function notificationBlocker(){throw new Error("Forbidden WhatsApp access");}', shortCircuit: true };
     return next(s, context);
   } });
   try {
@@ -59,7 +60,7 @@ test('smart intake HTTP: canonical identity, omitted service, explicit validatio
     const body = { customerId: 'customer', rateMode: 'PROMO', items: [item, item, item] };
     try {
       const key = crypto.randomUUID();
-      const response = await call('/orders', 'POST', body, key); assert.equal(response.status, 201);
+      const response = await call('/orders', 'POST', body, key); assert.equal(response.status, 201, await response.clone().text());
       const saved = await response.json();
       assert.equal(saved.pricing.serviceId, cleaningService.id); assert.equal(saved.totalIdr, 130000);
       assert.ok(saved.items.every((i: Row) => i.serviceId === cleaningService.id && i.serviceName === cleaningService.name));

@@ -8,6 +8,7 @@ import PublicLanding from './components/PublicLanding.vue';
 const trackPath = window.location.pathname.match(/^\/track\/([^/]+)\/?$/);
 const adminPath = /^\/admin\/?$/.test(window.location.pathname);
 const token = trackPath?.[1] ?? '';
+document.title = trackPath ? 'Cicuci Tracking' : adminPath ? 'Cicuci Admin' : 'Cicuci Sepatu';
 const user = ref<User | null>(null); const email = ref(''); const password = ref(''); const error = ref(''); const busy = ref(true);
 function expired() { user.value = null; error.value = 'Sesi berakhir. Silakan masuk kembali.'; }
 onMounted(async () => { if (!adminPath) { busy.value = false; return; } window.addEventListener('session-expired', expired); try { user.value = await currentUser(); } catch (cause) { if (!(cause instanceof ApiError && cause.status === 401)) error.value = cause instanceof Error ? cause.message : 'Pemeriksaan sesi gagal.'; else error.value = ''; } finally { busy.value = false; } });

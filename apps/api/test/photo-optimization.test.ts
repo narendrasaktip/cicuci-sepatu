@@ -26,7 +26,7 @@ test('new photo WebP bytes, orientation, bounds, metadata, fail-closed writes an
   const hook = registerHooks({ resolve(s, c, next) {
     if (/(?:^|\/)db\.js$/.test(s)) return { url: 'data:text/javascript,export const db=globalThis[Symbol.for("cicuci.photo.optimization")]', shortCircuit: true };
     if (/(?:^|\/)config\.js$/.test(s)) return { url: 'data:text/javascript,export const config={APP_BASE_URL:"http://invalid.test",NODE_ENV:"test"}', shortCircuit: true };
-    if (s.endsWith('/lib/whatsapp-control.js')) return { url: 'data:text/javascript,export function notificationBlocker(){throw Error("Forbidden WhatsApp access")}', shortCircuit: true };
+    if (s.endsWith('/lib/whatsapp-control.js')) return { url: 'data:text/javascript,export function workerSnapshot(){throw Error("Forbidden WhatsApp access")} export function notificationBlocker(){throw Error("Forbidden WhatsApp access")}', shortCircuit: true };
     if (/whatsapp\/|ioredis|bullmq|dotenv/.test(s)) throw Error(`Forbidden runtime import: ${s}`);
     return next(s, c);
   } });
@@ -65,7 +65,14 @@ test('new photo WebP bytes, orientation, bounds, metadata, fail-closed writes an
     await assert.rejects(upload(small, 'image/jpeg'), /UPLOAD_INVALID/);
     await assert.rejects(upload(small, 'image/png', { kind: 'INSPECTION' }), /PRIVATE_INSPECTION/);
     item.status = 'HANDED_OVER'; await assert.rejects(upload(small), /ITEM_CLOSED/); item.status = 'RECEIVED';
-    item.photos = Array.from({ length: 20 }, () => ({})); await assert.rejects(upload(small), /PHOTO_LIMIT/); item.photos = [];
+    for (const kind of ['BEFORE', 'INSPECTION', 'FINDINGS', 'AFTER']) {
+      item.photos = Array.from({ length: 9 }, () => ({ kind }));
+      await upload(small, 'image/png', { kind, customerVisible: kind !== 'INSPECTION' });
+      item.photos.push({ kind });
+      await assert.rejects(upload(small, 'image/png', { kind, customerVisible: kind !== 'INSPECTION' }), /PHOTO_LIMIT/);
+      await upload(small, 'image/png', { kind: kind === 'BEFORE' ? 'AFTER' : 'BEFORE' });
+    }
+    item.photos = [];
     await assert.rejects(uploadPhoto(tx, 'shoe', { kind: 'BEFORE', customerVisible: true, mime: 'image/png', base64: small.toString('base64') }, { id: 'other', role: 'STAFF' }), /FORBIDDEN/);
     item.inspection = {}; await assert.rejects(deletePhoto(tx, stored.id, actor), /EVIDENCE_LOCKED/); item.inspection = null;
     item.status = 'READY_FOR_PICKUP'; await assert.rejects(deletePhoto(tx, stored.id, actor), /PHOTO_LOCKED/); item.status = 'RECEIVED';
@@ -87,11 +94,17 @@ test('new photo WebP bytes, orientation, bounds, metadata, fail-closed writes an
     await assert.rejects(serve(operations, '/photos/:id', stored.id, 'STAFF'), /FORBIDDEN/);
     await assert.rejects(serve(publicApi, '/track/:token/photos/:id', stored.id, 'OWNER', 'b'.repeat(64)), /TOKEN_INVALID/);
     stored.customerVisible = false; await assert.rejects(serve(publicApi, '/track/:token/photos/:id', stored.id), /NOT_FOUND/); stored.customerVisible = true;
-    stored.kind = 'INSPECTION'; await assert.rejects(serve(publicApi, '/track/:token/photos/:id', stored.id), /NOT_FOUND/); stored.kind = 'BEFORE';
+    stored.kind = 'INSPECTION'; await assert.rejects(serve(publicApi, '/track/:token/photos/:id', stored.id), /NOT_FOUND/);
+    stored.kind = 'FINDINGS'; assert.deepEqual((await serve(publicApi, '/track/:token/photos/:id', stored.id)).bytes, stored.content);
+    stored.customerVisible = false; await assert.rejects(serve(publicApi, '/track/:token/photos/:id', stored.id), /NOT_FOUND/); stored.customerVisible = true;
+    stored.kind = 'BEFORE';
     const historical = { ...stored, id: 'old', mime: 'image/png', content: small }; photos.push(historical);
     for (const [router, path] of [[operations, '/photos/:id'], [publicApi, '/track/:token/photos/:id']] as const) {
       const result = await serve(router, path, 'old'); assert.equal(result.mime, 'image/png'); assert.deepEqual(result.bytes, small);
     }
-    assert.equal(photos.length, before + 1); assert.equal(audits, before);
+    assert.equal(photos.length, before + 9); assert.equal(audits, before + 8);
+    const findings = await upload(small, 'image/png', { kind: 'FINDINGS', customerVisible: true });
+    assert.equal(findings.kind, 'FINDINGS');
+    assert.deepEqual((await serve(publicApi, '/track/:token/photos/:id', findings.id)).bytes, photos.at(-1)!.content);
   } finally { hook.deregister(); Reflect.deleteProperty(globalThis, key); }
 });

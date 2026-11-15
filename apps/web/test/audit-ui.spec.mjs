@@ -1,6 +1,8 @@
 import process from 'node:process';
 import { test, expect } from '@playwright/test';
 
+test.use({ serviceWorkers: 'block' });
+
 const origin = process.env.TEST_WEB_ORIGIN ?? 'http://127.0.0.1:5173';
 const record = { id: 'audit-test', actorUserId: 'owner-test', actorUser: { name: 'Pemilik Uji' }, action: 'HTTP_REQUEST', entityType: 'Order', entityId: 'order-test', createdAt: '2026-11-11T08:00:00Z', metadata: { outcome: 'FAILED', requestId: 'request-test', errorCode: 'VALIDATION_ERROR', status: 400, method: 'PATCH', route: '/api/v1/settings', note: '<img src=x onerror=alert(1)>' } };
 async function fixture(page, role = 'OWNER', records = [record, { ...record, id: 'audit-legacy', actorUserId: 'legacy-user', actorUser: null, metadata: {} }]) {
@@ -17,6 +19,7 @@ async function fixture(page, role = 'OWNER', records = [record, { ...record, id:
     else if (path === '/dashboard') body = {};
     else if (path === '/orders' || path === '/notifications') body = { data: [], page: { nextCursor: null } };
     else if (path === '/whatsapp/status') body = { state: 'error', ready: false, realSendEnabled: false, provider: 'whatsapp-web.js', error: reason, lastCommand: { command: 'start', status: 'failed', error: reason } };
+    else if (path === '/whatsapp-templates') body = { templates: [], placeholders: {}, localOnly: true, encryptionReady: true };
     else if (path === '/audit') {
       queries.push(Object.fromEntries(url.searchParams));
       if (fail) return route.fulfill({ status: 503, json: { error: { code: 'UNAVAILABLE', message: 'Audit sementara tidak tersedia.' } } });
@@ -26,10 +29,11 @@ async function fixture(page, role = 'OWNER', records = [record, { ...record, id:
     return route.fulfill({ json: body });
   });
   await page.goto(`${origin}/admin`);
-  await expect(page.getByRole('heading', { name: 'Ringkasan', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
   return { queries, unexpected, fail(value) { fail = value; }, empty() { empty = true; }, reason(value) { reason = value; } };
 }
-async function openAudit(page) { await page.getByRole('button', { name: 'Audit', exact: true }).click(); await expect(page.getByRole('list', { name: 'Catatan audit' }).getByRole('listitem')).toHaveCount(2); }
+async function navigate(page, name) { const menu = page.getByRole('button', { name: 'Menu', exact: true }); if (await menu.isVisible()) await menu.click(); await page.getByRole('button', { name, exact: true }).click(); }
+async function openAudit(page) { await navigate(page, 'Audit'); await expect(page.getByRole('list', { name: 'Catatan audit' }).getByRole('listitem')).toHaveCount(2); }
 const apply = page => page.getByRole('button', { name: 'Terapkan / muat ulang', exact: true });
 
 test('audit readable actor/time, escaped expandable metadata, legacy fallback, request correlation', async ({ page }) => {
@@ -38,13 +42,27 @@ test('audit readable actor/time, escaped expandable metadata, legacy fallback, r
   await expect(list).toContainText('Pemilik Uji'); await expect(list).toContainText('Pengguna lama');
   await expect(list).toContainText('15.00'); await expect(list).toContainText('WIB');
   await expect(list).toContainText('Gagal'); await expect(list).toContainText('VALIDATION_ERROR');
-  await expect(list.locator('details').first()).not.toHaveAttribute('open', '');
-  await list.locator('summary').first().click();
+  await expect(list.locator('.audit-details').first()).not.toHaveAttribute('open', '');
+  await list.locator('.audit-details summary').first().click();
   await expect(list.locator('pre').first()).toContainText('"status": 400');
   await expect(list.locator('pre').first()).toContainText('<img src=x onerror=alert(1)>');
   await expect(list.locator('img')).toHaveCount(0);
   await list.getByRole('button', { name: 'Lihat aktivitas terkait', exact: true }).first().click();
   await expect.poll(() => mock.queries.at(-1)).toEqual({ limit: '25', requestId: 'request-test' });
+  expect(mock.unexpected).toEqual([]);
+});
+
+test('failed login shows attempted email without authenticating it or inventing historical identity', async ({ page }) => {
+  const mock = await fixture(page, 'OWNER', [
+    { ...record, id: 'login-current', action: 'LOGIN_FAILED', actorUserId: null, actorUser: null, metadata: { attemptedIdentity: 'admin@gmail.com' } },
+    { ...record, id: 'login-old', action: 'LOGIN_FAILED', actorUserId: 'historical-user', actorUser: { name: 'Historical account' }, metadata: {} },
+  ]);
+  await openAudit(page);
+  const rows = page.getByRole('list', { name: 'Catatan audit' }).getByRole('listitem');
+  await expect(rows.first()).toContainText('Identitas yang dicoba: admin@gmail.com');
+  await expect(rows.first().locator('.audit-actor')).toHaveText('Belum terautentikasi');
+  await expect(rows.last().locator('.audit-actor')).toHaveText('Belum terautentikasi');
+  await expect(rows.last()).not.toContainText('Identitas yang dicoba:');
   expect(mock.unexpected).toEqual([]);
 });
 
@@ -67,7 +85,7 @@ for (const width of [1440, 768, 390, 320]) {
       { ...record, id: 'audit-settings', action: 'SETTINGS_UPDATED', metadata: null },
       { ...record, id: 'audit-future', action: 'FUTURE_ACTION', actorUser: { name: 'Nama pengguna panjang untuk menguji pembungkusan teks' } },
     ]);
-    await page.getByRole('button', { name: 'Audit', exact: true }).click();
+    await navigate(page, 'Audit');
     const list = page.getByRole('list', { name: 'Catatan audit' });
     const rows = list.getByRole('listitem');
     await expect(rows).toHaveCount(3);
@@ -113,17 +131,24 @@ for (const width of [1440, 768, 390, 320]) {
 test('audit applies all filters; pagination retains applied values; reset clears cursor', async ({ page }) => {
   const mock = await fixture(page); await openAudit(page);
   await page.getByLabel('Cari aksi / entitas / ID').fill('order');
+  const advanced = page.locator('.audit-advanced');
+  await expect(advanced).not.toHaveAttribute('open', '');
+  await advanced.locator('summary').focus();
+  await page.keyboard.press('Enter');
   await page.getByLabel('Aksi', { exact: true }).fill('HTTP_REQUEST');
   await page.getByLabel('Jenis entitas').fill('Order');
   await page.getByLabel('Hasil', { exact: true }).selectOption('FAILED');
   await page.getByLabel('ID permintaan', { exact: true }).fill('request-test');
   await page.getByLabel('Dari', { exact: true }).fill('2026-11-10T00:00');
   await page.getByLabel('Sampai', { exact: true }).fill('2026-11-12T00:00');
+  await advanced.locator('summary').click();
   await apply(page).click();
   await expect.poll(() => mock.queries.at(-1)?.q).toBe('order');
   const applied = { ...mock.queries.at(-1) };
   expect(applied).toMatchObject({ action: 'HTTP_REQUEST', entityType: 'Order', outcome: 'FAILED', requestId: 'request-test' });
   expect(Number.isFinite(Date.parse(applied.from))).toBe(true); expect(Number.isFinite(Date.parse(applied.to))).toBe(true);
+  await advanced.locator('summary').click();
+  await expect(page.getByLabel('Aksi', { exact: true })).toHaveValue('HTTP_REQUEST');
   await page.getByLabel('Aksi', { exact: true }).fill('UNAPPLIED');
   await page.getByRole('button', { name: 'Berikutnya', exact: true }).click();
   await expect(page.getByText('Halaman 2', { exact: true })).toBeVisible();
@@ -135,6 +160,7 @@ test('audit applies all filters; pagination retains applied values; reset clears
   await page.getByRole('button', { name: 'Reset filter' }).click();
   await expect.poll(() => mock.queries.at(-1)).toEqual({ limit: '25' });
   await expect(page.getByLabel('Hasil', { exact: true })).toHaveValue('');
+  await expect(page.getByLabel('Aksi', { exact: true })).toHaveValue('');
   expect(mock.unexpected).toEqual([]);
 });
 
@@ -182,7 +208,7 @@ for (const [code, text] of [
   test(`safe WhatsApp diagnostic ${code}; read only`, async ({ page }) => {
     const mock = await fixture(page); mock.reason(code);
     await page.getByRole('button', { name: 'WhatsApp', exact: true }).click();
-    await expect(page.getByRole('alert')).toContainText(text);
+    await expect(page.getByRole('region', { name: 'WhatsApp Toko' }).getByRole('alert')).toContainText(text);
     await expect(page.getByText('Perintah gagal.', { exact: false })).toContainText(text);
     expect(mock.unexpected).toEqual([]);
   });

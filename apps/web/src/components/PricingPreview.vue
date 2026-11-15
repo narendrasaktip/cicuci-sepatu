@@ -40,7 +40,10 @@ watch(() => [props.rules, props.pairs, retry.value], async (_, __, cleanup) => {
       </button>
     </p>
     <template v-if="result">
-      <p role="status">
+      <p
+        class="pricing-total"
+        role="status"
+      >
         Estimasi server: <strong>{{ money(result.totalIdr) }}</strong> · {{ pairs }} pasang
       </p>
       <ul aria-label="Rincian estimasi">

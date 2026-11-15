@@ -1,0 +1,1 @@
+ALTER TABLE `Customer` MODIFY `salutation` VARCHAR(5) NOT NULL DEFAULT 'Kak';

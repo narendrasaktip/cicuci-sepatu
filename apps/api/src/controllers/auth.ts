@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { config } from '../lib/config.js';
 import { db } from '../lib/db.js';
 import { authenticate } from '../middleware/auth.js';
-import { createSession } from '../services/auth.js';
+import { auditFailedLogin, createSession } from '../services/auth.js';
 export const auth = Router();
 const cookieOptions = { httpOnly: true, secure: config.NODE_ENV === 'production', sameSite: 'lax' as const, path: '/' };
 const loginInput = z.object({ email: z.string().email().max(191).transform(value => value.toLowerCase()), password: z.string().min(1).max(128) }).strict();
@@ -12,8 +12,13 @@ const loginInput = z.object({ email: z.string().email().max(191).transform(value
 auth.post('/login', rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: { code: 'RATE_LIMITED', message: 'Terlalu banyak percobaan masuk. Coba lagi nanti.' } } }), async (req, res, next) => {
   try {
     if (req.get('Origin') !== new URL(config.APP_BASE_URL).origin) { res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Origin tidak valid.' } }); return; }
-    const input = loginInput.parse(req.body);
-    const session = await createSession(input.email, input.password);
+    const parsed = loginInput.safeParse(req.body);
+    if (!parsed.success) {
+      const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+      await auditFailedLogin(body.email, body.password);
+      throw parsed.error;
+    }
+    const session = await createSession(parsed.data.email, parsed.data.password);
     if (!session) { res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Email atau password tidak valid.' } }); return; }
     res.cookie('cicuci_session', session.token, { ...cookieOptions, expires: session.expiresAt }).sendStatus(204);
   } catch (error) { next(error); }

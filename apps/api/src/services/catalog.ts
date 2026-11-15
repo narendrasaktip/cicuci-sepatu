@@ -1,3 +1,4 @@
+import { handoverPreference } from './handover.js';
 import { readDisplaySettings, writeDisplaySettings, type TrackingStage, type DisplaySettings } from './display-settings.js';
 import { config } from '../lib/config.js';
 import argon2 from 'argon2';
@@ -5,11 +6,17 @@ import { type Prisma } from '@prisma/client';
 import { audit, type Tx } from '../repositories/orders.js';
 import { check, cleaningService, type Actor } from './orders.js';
 export const safeUser = { id: true, email: true, name: true, role: true, isActive: true, createdAt: true } as const;
-export async function customerWrite(tx: Tx, input: { salutation?: 'Kak' | 'Pak' | 'Bu'; name?: string; whatsapp?: string; notes?: string | null; notificationConsent?: boolean }, actor: Actor, id?: string) {
+export async function customerWrite(tx: Tx, input: { salutation?: 'Kak' | 'Pak' | 'Bu' | 'Om' | 'Tante'; name?: string; whatsapp?: string; notes?: string | null; notificationConsent?: boolean; handoverPreference?: { method: 'STORE' | 'PICKUP' | 'MEETUP' | 'COURIER'; location: string } | null }, actor: Actor, id?: string) {
   if (id) { await tx.$queryRaw`SELECT id FROM Customer WHERE id = ${id} FOR UPDATE`; const current = await tx.customer.findUnique({ where: { id } }); check(current, 'NOT_FOUND', 404); check(!current.archivedAt, 'ARCHIVED'); }
-  const { notificationConsent, ...fields } = input;
-  const data = { ...fields, ...(notificationConsent === undefined ? {} : { notificationConsentAt: notificationConsent ? new Date() : null }) };
-  const customer = id ? await tx.customer.update({ where: { id }, data }) : await tx.customer.create({ data: data as Prisma.CustomerCreateInput });
+  const { notificationConsent, handoverPreference: preference, ...fields } = input;
+  const data = { ...fields, ...(notificationConsent === undefined ? {} : { notificationConsentAt: notificationConsent ? new Date() : null }), ...(preference === undefined ? {} : preference === null ? { preferredHandoverMethod: null, preferredHandoverLocation: null } : handoverPreference(preference)) };
+  if (fields.whatsapp) check(!await tx.customer.findFirst({ where: { whatsapp: fields.whatsapp, ...(id ? { id: { not: id } } : {}) }, select: { id: true } }), 'CUSTOMER_PHONE_DUPLICATE');
+  let customer;
+  try { customer = id ? await tx.customer.update({ where: { id }, data }) : await tx.customer.create({ data: data as Prisma.CustomerCreateInput }); }
+  catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002' && fields.whatsapp) check(false, 'CUSTOMER_PHONE_DUPLICATE');
+    throw error;
+  }
   await audit(tx, actor.id, id ? 'CUSTOMER_UPDATED' : 'CUSTOMER_CREATED', customer.id); return customer;
 }
 export async function serviceWrite(tx: Tx, input: { name?: string; basePriceIdr?: number; isActive?: boolean }, actor: Actor, id?: string) {

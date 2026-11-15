@@ -21,7 +21,7 @@ export function auditContext(item: AuditLog) {
   const entities: Record<string, string> = { Request: 'Permintaan API', Order: 'Pesanan', OrderItem: 'Sepatu', Customer: 'Pelanggan', User: 'Pengguna', Service: 'Layanan', Settings: 'Pengaturan', NotificationEvent: 'Notifikasi' };
   return request || entities[item.entityType ?? ''] || item.entityType || 'Aktivitas sistem';
 }
-export type Customer = { salutation?: 'Kak' | 'Pak' | 'Bu'; archivedAt?: string | null; id: string; name: string; whatsapp: string; notes: string | null; notificationConsentAt: string | null };
+export type Customer = { preferredHandoverMethod?: 'STORE' | 'PICKUP' | 'MEETUP' | 'COURIER' | null; preferredHandoverLocation?: string | null; salutation?: 'Kak' | 'Pak' | 'Bu' | 'Om' | 'Tante'; archivedAt?: string | null; id: string; name: string; whatsapp: string; notes: string | null; notificationConsentAt: string | null };
 export type Service = { id: string; name: string; basePriceIdr: number; isActive: boolean };
 export type Consent = { id: string; findings?: string | null; customerNote?: string | null; risk: string; quotedPriceIdr: number; expiresAt: string; decision: string | null; expired?: boolean };
 export type Photo = { id: string; kind: string; customerVisible?: boolean; path?: string };
@@ -87,7 +87,7 @@ export function pricingName(pricing: Pricing) { return pricing.name ?? (pricing.
 export function pricingLabel(stage: string) { return stage === 'ESTIMATE' ? 'Estimasi biaya · menunggu pemeriksaan/persetujuan risiko' : stage === 'FINAL' ? 'Total final · hasil verifikasi staf' : 'Harga disetujui dan terkunci'; }
 export type Order = { trackingStages?: TrackingStage[]; publicOrigin?: string; statusLabels?: Record<string, string>; archivedAt?: string | null; pricing?: Pricing | null; refundDueIdr?: number; notification?: { status: string; reason?: string; actualOutbound: false };
   id: string; number: string; customerId?: string; customer?: Customer; createdAt?: string; estimatedCompletionAt: string;
-  pickupInstructions: string; aggregateStatus: string; totalIdr: number; paidIdr: number; balanceIdr: number;
+  pickupInstructions: string; handoverMethod?: 'STORE' | 'PICKUP' | 'MEETUP' | 'COURIER' | null; handoverLocation?: string | null; handoverNote?: string | null; aggregateStatus: string; totalIdr: number; paidIdr: number; balanceIdr: number;
   paymentStatus: string; itemCount?: number; items: Item[]; payments?: Payment[]; trackingToken?: string;
 };
 export type Notification = { id: string; provider: string; template: string; recipient: string; status: string; eventKey: string; lastError?: string; createdAt: string; attempts: { id: string; attemptNo: number; status?: string; error?: string | null; response?: unknown; attemptedAt: string }[] };
@@ -156,3 +156,5 @@ export async function photoInput(file: File) {
 }
 
 export const completionDate = (value: string) => { const parsed = new Date(value); return Number.isNaN(parsed.getTime()) ? '-' : `${new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Jakarta' }).format(parsed)} WIB`; };
+
+export const handoverLabels: Record<string, string> = { STORE: 'Di toko', PICKUP: 'Dijemput', MEETUP: 'Janjian', COURIER: 'Kurir' };

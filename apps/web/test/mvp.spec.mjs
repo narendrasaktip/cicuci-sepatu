@@ -12,7 +12,14 @@ const prefix = `web-${randomUUID()}`;
 const password = `Browser-${randomUUID()}`;
 let owner;
 const errors = [];
-test.beforeAll(async () => { owner = await db.user.create({ data: { name: prefix, email: `${prefix}@example.test`, passwordHash: await argon2.hash(password), role: 'OWNER' } }); });
+test.beforeAll(async () => {
+  const url = new URL(process.env.DATABASE_URL);
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || url.pathname !== '/cicuci_sepatu_dev' || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(origin).hostname)) throw new Error('MVP test requires local web and cicuci_sepatu_dev database');
+  owner = await db.$transaction(async tx => {
+    await tx.ratePlan.create({ data: { name: prefix, rules: [{ kind: 'PACKAGE', minPairs: 1, maxPairs: 1, priceIdr: 50000 }] } });
+    return tx.user.create({ data: { name: prefix, email: `${prefix}@example.test`, passwordHash: await argon2.hash(password), role: 'OWNER' } });
+  });
+});
 test.afterAll(async () => {
   if (!owner) { await db.$disconnect(); return; }
   const customers = await db.customer.findMany({ where: { name: { startsWith: prefix } } });
@@ -29,6 +36,7 @@ test.afterAll(async () => {
   await db.order.deleteMany({ where: { id: { in: orderIds } } });
   await db.customer.deleteMany({ where: { id: { in: customers.map(c => c.id) } } });
   await db.service.deleteMany({ where: { name: { startsWith: prefix } } });
+  await db.ratePlan.deleteMany({ where: { name: prefix } });
   const sessions = await db.session.findMany({ where: { userId: owner.id } });
   // Fixture mutation caches are encrypted/session-scoped; remove only captured keys below.
   const { createHash } = await import('node:crypto');
@@ -48,9 +56,9 @@ test('real browser: operational multi-shoe workflow, secure public consent, ledg
   await page.getByLabel('Email', { exact: true }).fill(owner.email);
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Masuk', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Ringkasan', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
   const nav = page.getByRole('navigation', { name: 'Navigasi utama' });
-  await nav.getByRole('button', { name: 'Tarif pesanan', exact: true }).click();
+  await nav.getByRole('button', { name: 'Tarif Pesanan', exact: true }).click();
   await page.getByText('Lanjutan: layanan lama', { exact: true }).click();
   await page.getByRole('button', { name: 'Layanan baru', exact: true }).last().click();
   await page.getByLabel('Nama *', { exact: true }).fill(`${prefix}-clean`);
@@ -70,10 +78,11 @@ test('real browser: operational multi-shoe workflow, secure public consent, ledg
   await page.getByLabel('Cari pelanggan').fill(prefix);
   await page.getByRole('button', { name: `${prefix} · +6281234567890`, exact: true }).click();
   await expect(page.locator('input[type="datetime-local"]')).toHaveCount(0);
+  const plan = page.getByRole('group', { name: /Harga paket otomatis/ }).getByRole('combobox');
+  await plan.selectOption({ label: prefix });
   for (let i = 0; i < 3; i++) {
     if (i) await page.getByRole('button', { name: 'Tambah sepatu', exact: true }).click();
     const shoe = page.getByRole('group', { name: `Sepatu ${i + 1}`, exact: true });
-    await shoe.getByRole('combobox').selectOption({ value: (await db.service.findFirstOrThrow({ where: { name: `${prefix}-clean` } })).id });
     await shoe.getByLabel('Merek *', { exact: true }).fill('Nike');
     await shoe.getByLabel('Model (opsional)', { exact: true }).fill(`Shoe ${i + 1}`);
     await shoe.getByLabel('Warna (opsional)', { exact: true }).fill('Putih');
@@ -84,7 +93,7 @@ test('real browser: operational multi-shoe workflow, secure public consent, ledg
   const trackLink = await page.getByLabel('Tautan rahasia untuk dibagikan manual').inputValue();
   const shoes = page.locator('article.shoe');
   async function confirm() { await page.getByRole('dialog').getByRole('button', { name: 'Konfirmasi', exact: true }).click(); await expect(page.getByRole('dialog')).not.toBeVisible(); }
-  async function step(shoe, name) { await shoe.getByRole('button', { name, exact: true }).click(); await confirm(); }
+  async function step(shoe, name, status) { await shoe.getByRole('button', { name, exact: true }).click(); await expect(shoe.locator('.badge').getByText(status, { exact: true })).toBeVisible(); }
   for (let i = 0; i < 3; i++) {
     const shoe = shoes.nth(i);
     await shoe.getByRole('button', { name: 'Periksa sepatu', exact: true }).click();
@@ -92,45 +101,57 @@ test('real browser: operational multi-shoe workflow, secure public consent, ledg
     await page.getByLabel('Catatan pemeriksaan internal').fill('Bukti diperiksa');
     await page.getByLabel('Foto sebelum pengerjaan', { exact: false }).setInputFiles({ name: 'before.png', mimeType: 'image/png', buffer: png });
     if (i === 1) {
-      await page.getByLabel('Risiko untuk pelanggan', { exact: true }).fill('Warna dapat luntur');
+      await page.getByLabel('Temuan untuk Customer', { exact: true }).fill('Warna terlihat pudar');
+      await page.getByLabel('Risiko untuk Customer', { exact: true }).fill('Warna dapat luntur');
       await page.getByLabel('Foto risiko', { exact: false }).setInputFiles({ name: 'risk.png', mimeType: 'image/png', buffer: png });
     }
     await page.getByRole('button', { name: 'Simpan pemeriksaan', exact: true }).click();
     await expect(page.getByRole('dialog')).not.toBeVisible();
   }
   const consentLink = await page.getByLabel('Tautan rahasia untuk dibagikan manual').inputValue();
-  expect(consentLink).toContain('#approval=');
+  expect(consentLink).toBe(trackLink);
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const publicPage = await context.newPage(); publicPage.on('pageerror', e => errors.push(e.message));
   await publicPage.goto(consentLink);
-  await expect(publicPage.getByRole('heading', { name: 'Persetujuan risiko diperlukan' })).toBeVisible();
-  expect(publicPage.url()).not.toContain('#');
+  await expect(publicPage.getByRole('heading', { name: 'Menunggu Persetujuan Customer' })).toBeVisible();
   await expect(publicPage.getByText('Bukti diperiksa')).toHaveCount(0);
-  await publicPage.getByRole('button', { name: 'Setujui risiko & biaya' }).click();
+  await publicPage.getByRole('button', { name: 'Setujui Risiko & Lanjutkan' }).click();
   await publicPage.getByRole('button', { name: 'Konfirmasi', exact: true }).click();
   await expect(publicPage.getByRole('dialog')).not.toBeVisible();
   await expect(publicPage.getByText('Keputusan tersimpan.', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'Muat ulang', exact: true }).click();
   await expect(shoes.nth(1).locator('.badge').getByText('Pemeriksaan · disetujui', { exact: true })).toBeVisible();
   const shoe = shoes.first();
-  for (const name of ['Mulai pengerjaan', 'Mulai pengeringan']) await step(shoe, name);
+  for (const [name, status] of [['Mulai pengerjaan', 'Pengerjaan'], ['Mulai pengeringan', 'Pengeringan']]) await step(shoe, name, status);
   await shoe.getByRole('button', { name: 'Ulangi pengerjaan', exact: true }).click();
   await page.getByLabel('Alasan gagal QC').fill('Masih ada noda'); await confirm();
-  for (const name of ['Mulai pengerjaan', 'Mulai pengeringan']) await step(shoe, name);
-  await shoe.getByRole('button', { name: 'Siap diambil', exact: true }).click();
+  for (const [name, status] of [['Mulai pengerjaan', 'Pengerjaan'], ['Mulai pengeringan', 'Pengeringan']]) await step(shoe, name, status);
+  await shoe.getByRole('button', { name: 'Mulai pengemasan dan QC', exact: true }).click();
   await page.getByLabel('Foto sesudah pengerjaan', { exact: false }).setInputFiles({ name: 'after.png', mimeType: 'image/png', buffer: png });
   await page.getByLabel('Sepatu sudah kering').check(); await page.getByLabel('Finishing selesai').check(); await page.getByLabel('Lulus pemeriksaan mutu (QC)').check();
   await page.getByRole('button', { name: 'Konfirmasi siap diambil' }).click(); await expect(page.getByRole('dialog')).not.toBeVisible();
+  await expect(shoe.locator('.badge').getByText('Siap diambil', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Catat pembayaran', exact: true }).click();
   await expect(page.getByLabel('Jumlah (Rp)')).toHaveValue('100000'); await expect(page.getByLabel('Metode *')).toHaveValue('QRIS'); await confirm();
   await expect(page.getByText('Lunas', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Pengembalian dana', exact: true }).click();
   await page.getByLabel('Jumlah (Rp)').fill('10000'); await page.getByLabel('Metode *').selectOption('CASH'); await page.getByLabel('Alasan *', { exact: true }).fill('Koreksi pembayaran'); await confirm();
-  await step(shoes.nth(2), 'Dikembalikan');
-  await page.getByRole('button', { name: 'Terbitkan / rotasi tautan', exact: true }).click(); await confirm();
+  await expect(shoes.nth(2).locator('.badge').getByText('Tidak dicuci', { exact: true })).toBeVisible();
+  const second = shoes.nth(1);
+  for (const [name, status] of [['Mulai pengerjaan', 'Pengerjaan'], ['Mulai pengeringan', 'Pengeringan']]) await step(second, name, status);
+  await second.getByRole('button', { name: 'Mulai pengemasan dan QC', exact: true }).click();
+  await page.getByLabel('Foto sesudah pengerjaan', { exact: false }).setInputFiles({ name: 'after.png', mimeType: 'image/png', buffer: png });
+  await page.getByLabel('Sepatu sudah kering').check(); await page.getByLabel('Finishing selesai').check(); await page.getByLabel('Lulus pemeriksaan mutu (QC)').check();
+  await page.getByRole('button', { name: 'Konfirmasi siap diambil' }).click(); await expect(page.getByRole('dialog')).not.toBeVisible();
+  await expect(second.locator('.badge').getByText('Siap diambil', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Catat pembayaran', exact: true }).click(); await expect(page.getByLabel('Jumlah (Rp)')).toHaveValue('10000'); await confirm();
+  await page.getByRole('button', { name: 'Sudah diambil', exact: true }).click(); await confirm();
+  await expect(shoes.nth(2).locator('.badge').getByText('Tidak dicuci', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Rotasi tautan', exact: true }).click(); await confirm();
   await publicPage.goto(trackLink); await expect(publicPage.getByRole('alert')).toContainText('TOKEN_INVALID');
   const rotated = await page.getByLabel('Tautan rahasia untuk dibagikan manual').inputValue();
-  await publicPage.goto(rotated); await expect(publicPage.getByRole('heading', { name: 'Estimasi & pengambilan' })).toBeVisible();
+  expect(rotated).not.toBe(trackLink);
+  await publicPage.goto(rotated); await expect(publicPage.getByRole('heading', { name: 'Informasi Pesanan', exact: true })).toBeVisible();
   expect(await publicPage.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth)).toBe(true);
   await page.getByRole('button', { name: 'Cabut tautan', exact: true }).click(); await confirm();
   await publicPage.reload(); await expect(publicPage.getByRole('alert')).toContainText('TOKEN_INVALID');
@@ -140,8 +161,10 @@ test('real browser: operational multi-shoe workflow, secure public consent, ledg
   await expect(page.getByText('Pengiriman nonaktif.', { exact: false })).toBeVisible();
   for (const name of ['Pengguna', 'Pengaturan', 'Audit']) { await nav.getByRole('button', { name, exact: true }).click(); await expect(page.getByRole('heading', { name, exact: true }).first()).toBeVisible(); }
   await page.setViewportSize({ width: 390, height: 844 });
-  await nav.getByRole('button', { name: 'Ringkasan', exact: true }).click();
+  await page.getByRole('button', { name: 'Menu', exact: true }).click();
+  await nav.getByRole('button', { name: 'Dashboard', exact: true }).click();
   expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth)).toBe(true);
+  await page.getByRole('button', { name: 'Menu', exact: true }).click();
   await page.getByRole('button', { name: 'Keluar', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Masuk Cicuci Admin' })).toBeVisible();
   await page.goto(`${origin}/admin?preview=1`); await expect(page.getByText('Fondasi sistem siap.', { exact: false })).toHaveCount(0);

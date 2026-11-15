@@ -34,13 +34,15 @@ async function mock(page, role = 'OWNER', handler = () => undefined) {
 }
 async function tariffs(page) {
   await page.goto(`${origin}/admin`);
-  await page.getByRole('navigation').getByRole('button', { name: 'Tarif pesanan', exact: true }).click();
+  await expect(page.locator('.mobile-menu')).toBeAttached();
+  if (await page.locator('.mobile-menu').isVisible()) await page.locator('.mobile-menu').click();
+  await page.getByRole('navigation').getByRole('button', { name: 'Tarif Pesanan', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Member November' })).toBeVisible();
 }
 async function intake(page) {
   await page.goto(`${origin}/admin`);
   await page.getByRole('navigation').getByRole('button', { name: 'Pesanan', exact: true }).click();
-  await page.getByRole('button', { name: 'Pesanan baru', exact: true }).click();
+  await page.getByRole('button', { name: 'Pesanan Baru', exact: true }).click();
 }
 async function fillOrder(page) {
   await page.getByLabel('Cari pelanggan').fill('Fixture');
@@ -53,11 +55,11 @@ async function fillOrder(page) {
 
 for (const role of ['OWNER', 'ADMIN', 'STAFF']) test(`named plans permissions and legacy details: ${role}`, async ({ page }) => {
   const state = await mock(page, role); await tariffs(page);
-  const card = page.getByRole('article').filter({ hasText: 'Member November' });
-  await expect(card).toContainText('Paket 3 pasang · harga total paket');
+  const card = page.getByRole('row').filter({ has: page.getByRole('heading', { name: 'Member November' }) });
+  await expect(card.getByRole('table', { name: 'Rincian harga Member November' })).toContainText('Paket');
   await expect(card).toContainText('47.000');
-  await expect(page.getByRole('button', { name: 'Tambah tarif', exact: true })).toHaveCount(role === 'OWNER' ? 1 : 0);
-  await expect(card.getByRole('button', { name: 'Ubah tarif / keaktifan' })).toHaveCount(role === 'OWNER' ? 1 : 0);
+  await expect(page.getByRole('button', { name: 'Tambah Tarif', exact: true })).toHaveCount(role === 'OWNER' ? 1 : 0);
+  await expect(card.getByRole('button', { name: 'Ubah tarif Member November' })).toHaveCount(role === 'OWNER' ? 1 : 0);
   await page.getByText('Lanjutan: layanan lama', { exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Layanan historis' })).toBeVisible();
   expect(state.mutations).toEqual([]);
@@ -65,12 +67,12 @@ for (const role of ['OWNER', 'ADMIN', 'STAFF']) test(`named plans permissions an
 
 test('owner edits full replacement revision, deactivates; new order excludes inactive plan', async ({ page }) => {
   const state = await mock(page); await tariffs(page);
-  await page.getByRole('article').filter({ hasText: 'Member November' }).getByRole('button').click();
+  await page.getByRole('button', { name: 'Ubah tarif Member November' }).click();
   await page.getByLabel('Nama tarif *').fill('Member baru');
   await page.getByLabel('Harga total paket (Rp)').first().fill('125000');
   await page.getByLabel('Tarif aktif untuk pesanan baru').uncheck();
-  await page.getByRole('button', { name: 'Simpan tarif', exact: true }).click();
-  const card = page.getByRole('article').filter({ hasText: 'Member baru' });
+  await page.getByRole('button', { name: 'Simpan', exact: true }).click();
+  const card = page.getByRole('row').filter({ has: page.getByRole('heading', { name: 'Member baru' }) });
   await expect(card).toContainText('Nonaktif');
   expect(state.mutations).toEqual([{ method: 'PATCH', path: '/api/v1/pricing/plans/custom', input: { name: 'Member baru', isActive: false, turnaroundPolicy: 'REGULAR', revision: 7, rules: [{ ...rules[0], priceIdr: 125000 }, rules[1]] } }]);
   await intake(page);
@@ -81,24 +83,24 @@ test('owner edits full replacement revision, deactivates; new order excludes ina
 
 test('owner adds custom package quantity and per-pair range; server preview', async ({ page }) => {
   const state = await mock(page); await tariffs(page);
-  await page.getByRole('button', { name: 'Tambah tarif', exact: true }).click();
+  await page.getByRole('button', { name: 'Tambah Tarif', exact: true }).click();
   await page.getByLabel('Nama tarif *').fill('Keluarga khusus');
   await expect(page.getByLabel('Jenis aturan')).toHaveValue('PACKAGE');
   await expect(page.getByLabel('Jumlah pasang dalam paket')).toHaveValue('1');
   await expect(page.getByLabel('Harga total paket (Rp)')).toHaveValue('1');
   await page.getByLabel('Harga total paket (Rp)').fill('47000');
-  await page.getByRole('button', { name: 'Tambah aturan', exact: true }).click();
+  await page.getByRole('button', { name: 'Tambah Aturan', exact: true }).click();
   await page.getByLabel('Jenis aturan').nth(1).selectOption('PACKAGE');
   await page.getByLabel('Jumlah pasang dalam paket').nth(1).fill('4');
   await page.getByLabel('Harga total paket (Rp)').nth(1).fill('160000');
-  await page.getByRole('button', { name: 'Tambah aturan', exact: true }).click();
-  await page.getByLabel('Minimal pasang', { exact: true }).fill('5');
+  await page.getByRole('button', { name: 'Tambah Aturan', exact: true }).click();
+  await page.getByLabel('Minimal Pasang', { exact: true }).fill('5');
   await page.getByLabel('Maksimal pasang (kosong = tanpa batas)').fill('9');
   await page.getByLabel('Harga per pasang (Rp)').fill('39000');
   await page.getByLabel('Jumlah pasang pratinjau').fill('8');
   await expect(page.getByRole('status').filter({ hasText: 'Estimasi server:' })).toContainText('98.765');
   await expect.poll(() => state.previews.at(-1)).toEqual({ pairs: 8, rules: [{ kind: 'PACKAGE', minPairs: 1, maxPairs: 1, priceIdr: 47000 }, { kind: 'PACKAGE', minPairs: 4, maxPairs: 4, priceIdr: 160000 }, { kind: 'PER_PAIR', minPairs: 5, maxPairs: 9, priceIdr: 39000 }] });
-  await page.getByRole('button', { name: 'Simpan tarif', exact: true }).click();
+  await page.getByRole('button', { name: 'Simpan', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Keluarga khusus' })).toBeVisible();
   expect(state.mutations[0]).toMatchObject({ method: 'POST', input: { name: 'Keluarga khusus', isActive: true, rules: state.previews.at(-1).rules } });
   expect(state.mutations[0].input).not.toHaveProperty('revision');
@@ -109,10 +111,10 @@ test('optimistic conflict retains draft, never silently retries', async ({ page 
   await mock(page, 'OWNER', (path, request) => {
     if (path.endsWith('/plans/custom') && request.method() === 'PATCH') { calls++; return { status: 409, json: { error: { code: 'CONFLICT' } } }; }
   });
-  await tariffs(page); await page.getByRole('article').filter({ hasText: 'Member November' }).getByRole('button').click();
+  await tariffs(page); await page.getByRole('button', { name: 'Ubah tarif Member November' }).click();
   await page.getByLabel('Nama tarif *').fill('Draft dipertahankan');
-  await page.getByRole('button', { name: 'Simpan tarif', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('CONFLICT');
+  await page.getByRole('button', { name: 'Simpan', exact: true }).click();
+  await expect(page.getByRole('form', { name: 'Editor tarif' }).getByRole('alert')).toContainText('CONFLICT');
   await expect(page.getByLabel('Nama tarif *')).toHaveValue('Draft dipertahankan');
   expect(calls).toBe(1);
 });
@@ -161,7 +163,7 @@ test('refreshed inactive selection cleared', async ({ page }) => {
 
 test('public tracking shows saved plan name without fetching current plans', async ({ page }) => {
   const state = await mock(page); await page.goto(`${origin}/track/${'a'.repeat(64)}`);
-  await expect(page.getByText(/Nama saat transaksi · 1 pasang/)).toBeVisible();
+  await expect(page.getByText('Layanan — Nama saat transaksi')).toBeVisible();
   await expect(page.getByText(/Tarif tersimpan · 1 pasang/)).toHaveCount(0);
   expect(state.previews).toEqual([]); expect(state.mutations).toEqual([]);
 });
@@ -191,18 +193,18 @@ test('stale preview cannot enable submit after pair count changes', async ({ pag
 test('invalid rule range blocks save; mobile editor stays within viewport', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const state = await mock(page); await tariffs(page);
-  await page.getByRole('button', { name: 'Tambah tarif', exact: true }).click();
+  await page.getByRole('button', { name: 'Tambah Tarif', exact: true }).click();
   await page.getByLabel('Nama tarif *').fill('Invalid');
   const price = page.getByLabel('Harga total paket (Rp)');
   await expect(price).toHaveAttribute('min', '1');
   await price.fill('0');
-  await expect(page.getByRole('button', { name: 'Simpan tarif', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Simpan', exact: true })).toBeDisabled();
   await expect(page.getByRole('status').filter({ hasText: 'rupiah positif' })).toBeVisible();
   await price.fill('1');
   await page.getByLabel('Jenis aturan').selectOption('PER_PAIR');
-  await page.getByLabel('Minimal pasang', { exact: true }).fill('5');
+  await page.getByLabel('Minimal Pasang', { exact: true }).fill('5');
   await page.getByLabel('Maksimal pasang (kosong = tanpa batas)').fill('3');
-  await expect(page.getByRole('button', { name: 'Simpan tarif', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Simpan', exact: true })).toBeDisabled();
   expect(state.mutations).toEqual([]);
   expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth)).toBe(true);
 });
@@ -225,9 +227,9 @@ test('Fast selector price and turnaround; owner policy editor', async ({ page })
   await fillOrder(page); await page.getByRole('button', { name: 'Buat pesanan', exact: true }).click();
   expect(state.orders[0].ratePlanId).toBe('fast');
   await tariffs(page);
-  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Fast', exact: true }) }).getByRole('button', { name: 'Ubah tarif / keaktifan' }).click();
+  await page.getByRole('button', { name: 'Ubah tarif Fast' }).click();
   await expect(page.getByLabel('Waktu penyelesaian')).toHaveValue('FAST');
   await page.getByLabel('Waktu penyelesaian').selectOption('REGULAR');
-  await page.getByRole('button', { name: 'Simpan tarif', exact: true }).click();
+  await page.getByRole('button', { name: 'Simpan', exact: true }).click();
   expect(state.mutations.at(-1).input.turnaroundPolicy).toBe('REGULAR');
 });

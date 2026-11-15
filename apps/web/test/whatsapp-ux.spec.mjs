@@ -29,6 +29,27 @@ async function fixture(page, options = {}) {
 }
 async function openWhatsApp(page) { await page.getByRole('button', { name: 'WhatsApp', exact: true }).click(); }
 
+for (const width of [390, 1440]) {
+  test(`responsive status cards and activation guard at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const mock = await fixture(page, { state: { state: 'ready', ready: true, realSendEnabled: false } });
+    if (width < 600) {
+      await page.getByRole('button', { name: 'Menu', exact: true }).click();
+    }
+    await openWhatsApp(page);
+    const cards = page.locator('.wa-status-card');
+    await expect(cards).toHaveCount(2);
+    await expect(cards.nth(0)).toContainText('WhatsApp terhubung.');
+    await expect(cards.nth(1)).toContainText('nonaktif.');
+    const first = await cards.nth(0).boundingBox(); const second = await cards.nth(1).boundingBox();
+    expect(width < 600 ? second.y > first.y : second.x > first.x).toBeTruthy();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+    page.once('dialog', dialog => dialog.dismiss());
+    await page.getByRole('button', { name: 'Aktifkan pengiriman', exact: true }).click();
+    expect(mock.commands).toEqual([]);
+  });
+}
+
 test('completed start never means connected; diagnostics collapsed; no automatic commands', async ({ page }) => {
   const mock = await fixture(page, { state: { state: 'starting', ready: false, realSendEnabled: false, lastCommand: { command: 'start', status: 'completed' } } });
   await openWhatsApp(page);
@@ -47,13 +68,15 @@ test('activation requires explicit risk consent; logout requires confirmation', 
   const mock = await fixture(page, { state: { state: 'ready', ready: true, realSendEnabled: false } });
   await openWhatsApp(page);
   const activate = page.getByRole('button', { name: 'Aktifkan pengiriman', exact: true });
-  await expect(activate).toBeDisabled();
-  await page.getByRole('checkbox', { name: /Saya memahami risiko/ }).check();
+  page.once('dialog', dialog => dialog.dismiss());
+  await activate.click();
+  expect(mock.commands).toEqual([]);
+  page.once('dialog', dialog => dialog.accept());
   await activate.click();
   expect(mock.commands).toEqual([{ path: '/whatsapp/activate', body: { acknowledgeRisk: true } }]);
   await expect(page.getByText('Permintaan masuk antrean.', { exact: false })).toBeVisible();
   await expect(page.getByText('Pengiriman nonaktif.', { exact: false })).toBeVisible();
-  await expect(activate).toBeDisabled();
+  await expect(activate).toBeEnabled();
   await page.getByText('Diagnostik dan pengelolaan sesi', { exact: true }).click();
   page.once('dialog', dialog => dialog.dismiss());
   await page.getByRole('button', { name: 'Putuskan dan hapus sesi' }).click();
@@ -106,7 +129,7 @@ for (const enabled of [false, true]) {
       await expect(page.getByText('WhatsApp terhubung.', { exact: true })).toBeVisible();
       await expect(page.getByText(enabled ? 'Pengiriman aktif untuk event baru' : 'Pengiriman nonaktif.', { exact: false })).toBeVisible();
       await page.getByRole('button', { name: 'Periksa status WhatsApp', exact: true }).click();
-      await page.getByRole('button', { name: 'Ringkasan', exact: true }).click();
+      await page.getByRole('button', { name: /^(Ringkasan|Dashboard)$/ }).click();
       await openWhatsApp(page);
       await expect(page.getByText('Memeriksa status WhatsApp…', { exact: true })).toBeVisible();
       await expect(page.getByText('WhatsApp terhubung.', { exact: true })).toBeVisible();

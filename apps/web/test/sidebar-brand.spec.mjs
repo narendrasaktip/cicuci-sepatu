@@ -35,8 +35,8 @@ for (const width of [1440, 768, 760, 390, 320]) {
         overflow: document.documentElement.scrollWidth > innerWidth, src: img.currentSrc };
     });
     expect(dimensions.naturalHeight).toBe(360);
-    expect(dimensions.width).toBe(width <= 760 ? 90 : 120);
-    expect(dimensions.height).toBe(width <= 760 ? 60 : 80);
+    expect(dimensions.width).toBe(width <= 760 ? 90 : 140);
+    expect(dimensions.height).toBeCloseTo(width <= 760 ? 60 : 140 / 1.5);
     expect(dimensions.width / dimensions.height).toBeCloseTo(1.5);
     expect(dimensions.contained).toBe(true);
     // Existing order pagination overflows at 320px; keep this change scoped to the sidebar.
@@ -46,8 +46,9 @@ for (const width of [1440, 768, 760, 390, 320]) {
     const response = await page.request.get(dimensions.src);
     expect(response.ok()).toBe(true);
     expect(await response.body()).toEqual(await readFile(asset));
+    if (width <= 760) await page.getByRole('button', { name: 'Menu', exact: true }).click();
     await expect(page.getByRole('navigation', { name: 'Navigasi utama' })).toBeVisible();
-    if (width > 760) await expect(page.getByText('Ruang operasional', { exact: true })).toBeVisible();
+    await expect(page.getByText('Ruang operasional', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('alert')).toHaveCount(0);
     await brand.focus();
     await expect(brand).toBeFocused();

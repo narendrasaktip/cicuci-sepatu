@@ -122,11 +122,13 @@ enum ItemStatus {
 }
 
 model Customer {
-  salutation String @default("Kak") @db.VarChar(3)
+  preferredHandoverMethod String? @db.VarChar(20)
+  preferredHandoverLocation String? @db.Text
+  salutation String @default("Kak") @db.VarChar(5)
   archivedAt DateTime? @db.DateTime(3)
   id                    String    @id @default(cuid()) @db.VarChar(30)
   name                  String    @db.VarChar(100)
-  whatsapp              String    @db.VarChar(20)
+  whatsapp              String    @unique @db.VarChar(20)
   notes                 String?   @db.Text
   notificationConsentAt DateTime? @db.DateTime(3)
   createdAt             DateTime  @default(now()) @db.DateTime(3)
@@ -162,6 +164,9 @@ model Order {
   customer              Customer            @relation(fields: [customerId], references: [id])
   estimatedCompletionAt DateTime            @db.DateTime(3)
   pickupInstructions    String              @db.Text
+  handoverMethod        String?             @db.VarChar(20)
+  handoverLocation      String?             @db.Text
+  handoverNote          String?             @db.Text
   aggregateStatus       String              @default("RECEIVED") @db.VarChar(30)
   trackingSecret        String?             @db.Text
   trackingHash          String?             @unique @db.Char(64)
@@ -247,6 +252,7 @@ model Photo {
   id              String    @id @default(cuid()) @db.VarChar(30)
   itemId          String    @db.VarChar(30)
   item            OrderItem @relation(fields: [itemId], references: [id])
+  /// BEFORE, INSPECTION, FINDINGS, or AFTER; validated by the API.
   kind            String    @db.VarChar(20)
   customerVisible Boolean
   mime            String    @db.VarChar(30)

@@ -28,6 +28,7 @@ test('audit boundaries: isolated HTTP and fail-closed fake DB only', async t => 
       return { user: { id: 'fixture-owner', name: 'Fixture Owner', role, isActive: true }, csrfToken: 'fixture-csrf', expiresAt: new Date(Date.now() + 60000) };
     } },
     user: { findMany: async (query: Record<string, unknown>) => { assert.deepEqual(query, { where: { id: { in: rows.length ? ['fixture-owner','fixture-owner'] : [] } }, select: { id: true, name: true } }); return [{ id: 'fixture-owner', name: 'Fixture Owner' }]; } },
+    notificationEvent: { findMany: async () => [{ id: 'event', provider: 'whatsapp-web.js', template: 'ORDER_RECEIVED', recipient: '+628123456789', status: 'FAILED', eventKey: 'fixture', createdAt: new Date(), encryptedMessage: secret, attempts: [{ id: 'attempt', attemptNo: 1, status: 'FAILED', attemptedAt: new Date(), response: { actualOutbound: 'unknown', error: 'AMBIGUOUS_SEND_MANUAL_REVIEW', password: secret } }] }] },
     order: { findUnique: async () => null },
   }, { get(target, key, receiver) { if (!Reflect.has(target, key)) { unexpected.push(String(key)); throw new Error(`Unexpected DB access: ${String(key)}`); } return Reflect.get(target, key, receiver); } });
   const symbol = Symbol.for('cicuci.test.audit.db');
@@ -50,6 +51,29 @@ test('audit boundaries: isolated HTTP and fail-closed fake DB only', async t => 
       for (const route of ['/api/v1/track/shortsecret', `/api/v1/track/${token}`, '/api/v1/orders/private-id', '/api/v1/track/:token?token=secret', 'http://provider.test']) assert.deepEqual(safeMetadata({ route }), {});
       for (const value of [-1, 1.5, Infinity, NaN, Number.MAX_SAFE_INTEGER + 1, '1', true]) assert.deepEqual(safeMetadata({ count: value, generation: value, durationMs: value }), {});
       assert.deepEqual(safeMetadata({ status: 600, actualOutbound: 'submitted', retryable: 'true', realSendEnabled: 1, qr: secret, phone: secret, payload: { secret } }), {});
+    });
+    await t.test('send diagnostics survive persistence with fixed codes/phases only', async () => {
+      const { sendDiagnostic } = await import('../src/integrations/whatsapp/diagnostics.js');
+      for (const [message, code, phase] of [
+        ['upload failed: media entry was not created', 'MEDIA_UPLOAD_FAILED', 'uploadMedia'],
+        ['media-fault: sendToChat filehash undefined', 'MEDIA_PREPARATION_FAILED', 'processMediaData'],
+        ['SEND_TIMEOUT', 'SEND_TIMEOUT', 'sendMessage'],
+        ['QR_PREPARATION_FAILED', 'QR_PREPARATION_FAILED', 'unknown'],
+        ['Target closed', 'BROWSER_CLOSED', 'getMessageModel'],
+        ['unrecognized failure', 'UNKNOWN', 'sendSeen'],
+        ['unrecognized failure', 'UNKNOWN', 'getChat'],
+      ]) {
+        const error = new Error(`${message} ${secret}`);
+        error.stack = `Error: ${secret}\n    at window.WWebJS.${phase} (https://private.test/token:1:2)`;
+        const diagnostic = sendDiagnostic(error);
+        assert.equal(diagnostic.diagnosticCode, code);
+        assert.equal(diagnostic.sendPhase, phase);
+        await recordActivity({ action: 'NOTIFICATION_FAILED', entityType: 'NotificationEvent', metadata: diagnostic });
+        assert.deepEqual(writes.pop()?.metadata, diagnostic);
+        assert.doesNotMatch(JSON.stringify(diagnostic), /private|https|token/);
+      }
+      assert.equal(sendDiagnostic(new Error(`sendSeen ${secret}`)).sendPhase, 'unknown');
+      assert.deepEqual(safeMetadata({ sendPhase: secret, diagnosticCode: secret }), {});
     });
     await t.test('write failure resolves, logs no caller/provider secrets; helper contract preserved', async () => {
       failWrite = true;
@@ -80,6 +104,16 @@ test('audit boundaries: isolated HTTP and fail-closed fake DB only', async t => 
       return { response, body, id };
     };
     try {
+      await t.test('notification history masks recipient and preserves ambiguous result without secrets', async () => {
+        const { response, body } = await call('/api/v1/notifications', { headers: cookie });
+        assert.equal(response.status, 200);
+        assert.equal(body.data[0].recipient, '***6789');
+        assert.deepEqual(body.data[0].attempts[0].response, { actualOutbound: 'unknown', reason: 'AMBIGUOUS_SEND_MANUAL_REVIEW' });
+        assert.doesNotMatch(JSON.stringify(body), /628123456789|private-provider-secret/);
+        role = 'STAFF';
+        assert.equal((await call('/api/v1/notifications', { headers: cookie })).response.status, 403);
+        role = 'OWNER';
+      });
       await t.test('mutations correlate server UUID; successful polling omitted', async () => {
         writes.length = 0;
         const response = await fetch(`${baseOf(mutationServer)}/api/v1/orders?token=${token}`, { method: 'POST', headers: { 'X-Request-ID': secret } });
@@ -143,7 +177,7 @@ test('audit boundaries: isolated HTTP and fail-closed fake DB only', async t => 
         assert.deepEqual(result.body.page, { nextCursor: 'fixture-a' });
         assert.deepEqual(result.body.data[0].actorUser, { id: 'fixture-owner', name: 'Fixture Owner' });
         assert.equal(result.body.data[0].createdAt, occurredAt.toISOString());
-        assert.deepEqual(queries.pop(), { where: { action: 'API_ERROR', entityType: 'Request', occurredAt: { gte: new Date(from), lte: new Date(to) }, AND: [{ OR: [{ action: { contains: 'API' } }, { entityType: { contains: 'API' } }, { entityId: { contains: 'API' } }] }, { metadata: { path: '$.outcome', equals: 'FAILED' } }, { metadata: { path: '$.requestId', equals: requestId } }] }, take: 2, cursor: { id: 'fixture-cursor' }, skip: 1, orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }] });
+        assert.deepEqual(queries.pop(), { where: { action: 'API_ERROR', entityType: 'Request', occurredAt: { gte: new Date(from), lte: new Date(to) }, AND: [{ OR: [{ action: { contains: 'API' } }, { entityType: { contains: 'API' } }, { entityId: { contains: 'API' } }] }, { OR: [{ metadata: { path: '$.outcome', equals: 'FAILED' } }, { action: 'LOGIN_FAILED' }] }, { metadata: { path: '$.requestId', equals: requestId } }] }, take: 2, cursor: { id: 'fixture-cursor' }, skip: 1, orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }] });
         for (const query of ['requestId=secret','outcome=secret','limit=101',`from=${to}&to=${from}`,'unknown=secret']) assert.equal((await call(`/api/v1/audit?${query}`, { headers: cookie })).response.status, 400);
         assert.equal(queries.length, 0);
         failRead = true;

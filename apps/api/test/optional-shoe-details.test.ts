@@ -4,7 +4,7 @@ import { test } from 'node:test';
 
 test('optional shoe details HTTP: create/add normalize; partial edit preserves; brand/type/length guards', async () => {
   process.env.DATABASE_URL = 'mysql://fake:fake@127.0.0.1:1/fake';
-  process.env.REDIS_URL = 'redis://127.0.0.1:1'; process.env.APP_BASE_URL = 'http://example.test';
+  process.env.REDIS_URL = 'redis://127.0.0.1:1'; process.env.APP_BASE_URL = 'https://example.test';
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   type Row = Record<string, any>; // Test-only in-memory Prisma rows.
   const services = new Map<string, Row>([['historical', { id: 'historical', name: 'Unrelated restoration', basePriceIdr: 900000, isActive: true }]]);
@@ -12,6 +12,7 @@ test('optional shoe details HTTP: create/add normalize; partial edit preserves; 
   const cache = new Map<string, Row>();
   const fake = {
     session: { findUnique: async () => ({ user: { id: 'owner', role, isActive: true }, csrfToken: 'csrf', expiresAt: new Date('2100-01-01') }) },
+    user: { findUnique: async () => ({ role, isActive: true }) },
     customer: { count: async () => 1 },
     service: {
       findUnique: async ({ where }: Row) => services.get(where.id),
@@ -45,7 +46,7 @@ test('optional shoe details HTTP: create/add normalize; partial edit preserves; 
   const hooks = registerHooks({ resolve(s, context, next) {
     if (s.endsWith('/controllers/whatsapp.js')) return { url: 'data:text/javascript,export const whatsapp=(_req,_res,next)=>next();', shortCircuit: true };
     if (/(?:^|\/)db\.js$/.test(s)) return { url: 'data:text/javascript,export const db=globalThis[Symbol.for("cicuci.optional.test")];', shortCircuit: true };
-    if (s.endsWith('/lib/whatsapp-control.js')) return { url: 'data:text/javascript,export async function notificationBlocker(){throw new Error("Forbidden WhatsApp access");}', shortCircuit: true };
+    if (s.endsWith('/lib/whatsapp-control.js')) return { url: 'data:text/javascript,export function workerSnapshot(){throw new Error("Forbidden WhatsApp access");} export async function notificationBlocker(){throw new Error("Forbidden WhatsApp access");}', shortCircuit: true };
     return next(s, context);
   } });
   try {

@@ -45,7 +45,7 @@ for (const width of [320, 1440]) for (const scenario of ['fast', 'late', 'edited
   if (scenario === 'late') await expect(info.locator('.summary-eta h3')).toHaveText('Estimasi Selesai: 2 hari kalender · melewati batas 17:00 WIB');
   else if (['edited', 'missing-created', 'legacy'].includes(scenario)) await expect(info.locator('.summary-eta h3')).toHaveText('Estimasi Selesai:');
   else await expect(info.locator('.summary-eta h3')).toHaveText('Estimasi Selesai: 1 hari kalender · nextday');
-  await expect(info.locator('.completion')).toContainText('| 17:00 WIB.');
+  await expect(info.locator('.completion')).toContainText('| 17.00 WIB.');
   await expect(info.locator('.progress-counts')).toHaveCSS('list-style-type', 'disc');
   await expect(info.locator('.progress-counts li')).toHaveText(['1 pasang sepatu selesai dicuci', `1 pasang sepatu tidak dicuci${scenario === 'nonzero' ? '' : ' — tanpa biaya pencucian'}`]);
   await expect(info.locator('.customer-notes')).toContainText('Sepatu 2 (<em>Adidas</em>) — tidak dicuci');
@@ -115,7 +115,7 @@ for (const width of [320, 390, 1440]) for (const stage of ['ESTIMATE', 'FINAL'])
   await expect(price).not.toContainText('· estimasi');
   await expect(eta.locator('h3')).toHaveText('Estimasi Selesai:');
   await expect(eta).toHaveClass(stage === 'ESTIMATE' ? 'summary-eta' : 'summary-eta inactive');
-  await expect(eta.locator('.completion')).toContainText('Minggu, 15 November 2026 | 23:59 WIB.');
+  await expect(eta.locator('.completion')).toContainText('Minggu, 15 November 2026 | 23.59 WIB.');
   const layout = await price.evaluate(node => {
     const range = document.createRange(); range.selectNodeContents(node);
     const lines = [...range.getClientRects()], box = node.getBoundingClientRect();

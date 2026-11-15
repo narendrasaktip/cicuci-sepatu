@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import logo from '../assets/logo.webp';
+import { handoverLabels } from '../services/domain';
 import { computed, nextTick, onMounted, ref } from 'vue';
 import { api } from '../services/auth';
 import { statusName, trackingPrice, trackingPriceLines, trackingDuration, pricingName, labels, money, type Item, type Order } from '../services/domain';
@@ -79,7 +80,9 @@ function historyLabel(item: Item, status: string) {
   if (status === 'RETURN_PENDING' && customerDeclined(item)) return 'Customer Menolak Untuk Dicuci';
   if (status === 'RETURN_PENDING' && item.outcome === 'REJECTED') return 'Pencucian Ditolak oleh Toko';
   const overrides: Record<string, string> = { RECEIVED: 'Sepatu Diterima', INSPECTION: 'Pemeriksaan Sepatu', WASHING: 'Dalam Proses Pencucian', DRYING: 'Dalam Proses Pengeringan', READY_FOR_PICKUP: 'Selesai Dikerjakan', RETURN_PENDING: 'Tidak Dicuci', RETURNED: 'Tidak Dicuci' };
-  return publicStatusName('history', status, overrides[status] ?? label(status));
+  const name = publicStatusName('history', status, overrides[status] ?? label(status));
+  if (status === 'READY_FOR_PICKUP' && name === 'Selesai Dikerjakan') return 'Siap Diambil';
+  return ['WASHING', 'DRYING'].includes(status) ? name.replace(/^Dalam Proses /, 'Proses ') : name;
 }
 function rejectionReason(item: Item) {
   if (item.outcome === 'REJECTED') return 'Pencucian tidak dilanjutkan setelah pemeriksaan staf.';
@@ -100,9 +103,9 @@ function date(value?: string | null) {
   if (Number.isNaN(parsed.getTime()) || (dayOnly && parsed.toISOString().slice(0, 10) !== value)) return 'Waktu Tidak Tersedia';
   const parts = Object.fromEntries(new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', ...(dayOnly ? {} : { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' as const }) }).formatToParts(parsed).map(part => [part.type, part.value]));
   const formatted = `${parts.weekday}, ${parts.day} ${parts.month} ${parts.year}`;
-  return dayOnly ? `${formatted} · Jam Tidak Tersedia` : `${formatted} | ${parts.hour}:${parts.minute} WIB.`;
+  return dayOnly ? `${formatted} · Jam Tidak Tersedia` : `${formatted} | ${parts.hour}.${parts.minute} WIB.`;
 }
-const publicPhotos = (item: Item) => item.photos.filter(photo => ['BEFORE', 'AFTER'].includes(photo.kind) && photo.customerVisible !== false && photo.path);
+const publicPhotos = (item: Item) => item.photos.filter(photo => ['BEFORE', 'FINDINGS', 'AFTER'].includes(photo.kind) && photo.customerVisible !== false && photo.path);
 const photoDialog = ref<HTMLDialogElement>();
 const enlarged = ref<{ path: string; alt: string }>();
 let photoTrigger: HTMLButtonElement | undefined;
@@ -285,10 +288,22 @@ function closePhoto() {
             </ul>
           </section>
           <div
-            v-if="order.pickupInstructions?.trim()"
+            v-if="order.pickupInstructions?.trim() || order.handoverMethod"
             class="pickup-instructions"
           >
-            <h3>Pengambilan</h3><p class="preserve">
+            <h3>Pengambilan</h3><p v-if="order.handoverMethod">
+              {{ handoverLabels[order.handoverMethod] }}
+            </p><p
+              v-if="order.handoverLocation"
+              class="preserve"
+            >
+              {{ order.handoverLocation }}
+            </p><p
+              v-if="order.handoverNote"
+              class="preserve"
+            >
+              {{ order.handoverNote }}
+            </p><p class="preserve">
               {{ order.pickupInstructions }}
             </p>
           </div>
@@ -337,12 +352,6 @@ function closePhoto() {
               <dt>Sisa Pembayaran</dt><dd>{{ money(order.balanceIdr) }}</dd>
             </div>
           </dl>
-          <p
-            v-if="order.pricing?.basis === 'CANCELLATION'"
-            class="muted summary-note"
-          >
-            Kelayakan paket/promo dihitung ulang memakai tarif tersimpan untuk sepatu tersisa, bukan harga rata-rata.
-          </p>
           <p
             v-if="order.pricing?.calculationMatches === false"
             class="muted summary-note"
@@ -462,16 +471,16 @@ function closePhoto() {
               >
                 <button
                   type="button"
-                  :aria-label="`Perbesar ${item.brand} - Foto ${label(photo.kind)}`"
-                  @click="openPhoto($event, photo.path!, `${item.brand} - Foto ${label(photo.kind)}`)"
+                  :aria-label="`Perbesar ${item.brand} - Foto ${photo.kind === 'BEFORE' ? 'Sebelum' : photo.kind === 'FINDINGS' ? 'Temuan' : label(photo.kind)}`"
+                  @click="openPhoto($event, photo.path!, `${item.brand} - Foto ${photo.kind === 'BEFORE' ? 'Sebelum' : photo.kind === 'FINDINGS' ? 'Temuan' : label(photo.kind)}`)"
                 >
                   <img
                     :src="photo.path"
-                    :alt="`${item.brand} - Foto ${label(photo.kind)}`"
+                    :alt="`${item.brand} - Foto ${photo.kind === 'BEFORE' ? 'Sebelum' : photo.kind === 'FINDINGS' ? 'Temuan' : label(photo.kind)}`"
                     loading="lazy"
                     referrerpolicy="no-referrer"
                   >
-                </button><figcaption>{{ label(photo.kind) }}</figcaption>
+                </button><figcaption>{{ photo.kind === 'BEFORE' ? 'Sebelum' : photo.kind === 'FINDINGS' ? 'Temuan' : label(photo.kind) }}</figcaption>
               </figure>
             </div>
           </section>
@@ -540,7 +549,8 @@ function closePhoto() {
 .tracking .tracking-header h1 { margin: 0; letter-spacing: normal; }
 .tracking .order-identity { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: 1rem; }
 .tracking .order-identity > div { min-width: 0; flex: 1 1 180px; }
-.tracking .order-number { margin: 0 0 .35rem; font-size: 1.5rem; font-weight: 700; }
+.tracking .order-identity .refresh { padding-inline: .6rem; font-size: .8125rem; }
+.tracking .order-number { margin: 0; font-size: 1.25rem; font-weight: 700; }
 .tracking .panel.order-summary { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; margin: 0 0 1rem; padding: 0; overflow: hidden; }
 .tracking .order-summary > section { min-width: 0; padding: 1rem; }
 .tracking .summary-info { background: #fff; }

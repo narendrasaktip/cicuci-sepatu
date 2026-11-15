@@ -138,8 +138,8 @@ for (const width of [320, 360, 390, 768, 1440]) {
     await expect(page.getByText(/Rincian biaya sepatu|Hasil inspeksi:|Penawaran /)).toHaveCount(0);
     for (const timeline of await page.locator('.timeline').all()) await expect(timeline).toBeVisible();
     await expect(page.locator('.timeline').first().locator('strong')).toHaveText(['Sepatu Diterima', 'Menunggu Persetujuan Customer']);
-    await expect(page.locator('.timeline').first().locator('time')).toHaveText(['Rabu, 11 November 2026 | 10:00 WIB.', 'Rabu, 11 November 2026 | 11:00 WIB.']);
-    await expect(page.locator('.records').first()).toContainText('Jumat, 13 November 2099 | 17:00 WIB.');
+    await expect(page.locator('.timeline').first().locator('time')).toHaveText(['Rabu, 11 November 2026 | 10.00 WIB.', 'Rabu, 11 November 2026 | 11.00 WIB.']);
+    await expect(page.locator('.records').first()).toContainText('Jumat, 13 November 2099 | 17.00 WIB.');
     await expect(page.locator('.summary-rows')).toBeVisible();
     await expect(page.locator('.order-summary')).toContainText(state.order.pricing.name);
     await expect(page.locator('.timeline').first()).toBeVisible();
@@ -184,7 +184,7 @@ test('consent card risk-only copy; legacy defaults and custom labels stay compat
   await expect(card.getByText(item.consents[0].risk, { exact: true })).toHaveCount(1);
   await expect(card.locator('.preserve')).toHaveCount(2);
   await expect(card).not.toContainText(/Rp|45[.,]000|penawaran|penanganan|CATATAN_INTERNAL|RISIKO_INTERNAL/);
-  await expect(card).toContainText('Batas KonfirmasiJumat, 13 November 2099 | 17:00 WIB.');
+  await expect(card).toContainText('Batas KonfirmasiJumat, 13 November 2099 | 17.00 WIB.');
   await expect(card).toContainText('Dengan menyetujui, Anda menerima risiko pencucian di atas.');
   await expect(card).toContainText('Menolak berarti sepatu dikembalikan tanpa biaya cuci.');
   await expect(page.locator('.summary-total dd')).toHaveText(/Rp\s*45\.000/);
@@ -362,7 +362,7 @@ for (const width of [320, 390, 1440]) test(`full WIB dates, truthful rejected hi
   }];
   await page.setViewportSize({ width, height: 900 });
   await page.goto(`${origin}/track/${token}`);
-  await expect(page.locator('.completion')).toHaveText('Kamis, 12 November 2026 | 00:52 WIB.');
+  await expect(page.locator('.completion')).toHaveText('Kamis, 12 November 2026 | 00.52 WIB.');
   expect(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)).toBe('America/Los_Angeles');
   const ready = page.locator('article').nth(0); const rejected = page.locator('article').nth(1);
   await expect(rejected.getByRole('heading', { level: 2 })).toHaveText('adidas originals');
@@ -372,7 +372,7 @@ for (const width of [320, 390, 1440]) test(`full WIB dates, truthful rejected hi
   await expect(ready.locator('.badge')).toHaveAttribute('data-tone', 'green');
   await expect(rejected.locator('.rejection')).toHaveText('Sepatu Tidak Dicuci dan Tidak Ada Biaya Cuci');
   await expect(rejected.locator('.timeline strong')).toHaveText(['Sepatu Diterima', 'Pemeriksaan Selesai', 'Tidak Dicuci · Menunggu Pengembalian']);
-  await expect(rejected.locator('.timeline time')).toHaveText(['Kamis, 12 November 2026 | 00:50 WIB.', 'Kamis, 12 November 2026 | 00:51 WIB.', 'Kamis, 12 November 2026 | 00:52 WIB.']);
+  await expect(rejected.locator('.timeline time')).toHaveText(['Kamis, 12 November 2026 | 00.50 WIB.', 'Kamis, 12 November 2026 | 00.51 WIB.', 'Kamis, 12 November 2026 | 00.52 WIB.']);
   await expect(rejected.locator('[aria-current="step"]')).toHaveCount(1);
   await expect(rejected.getByText(/disetujui|Disetujui/)).toHaveCount(0);
   const gallery = ready.locator('.photos');

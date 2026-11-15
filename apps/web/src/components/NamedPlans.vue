@@ -77,36 +77,32 @@ onMounted(load);
       :class="newPresentation ? 'rate-toolbar' : undefined"
       :style="newPresentation ? undefined : { display: 'contents' }"
     >
-      <div
-        v-if="newPresentation"
-        class="rate-intro"
-      >
-        <p>Harga berlaku per pasang atau per paket sesuai aturan tarif.</p>
-        <details>
-          <summary>Ketentuan tarif & pesanan lama</summary>
-          <p>Satu item berarti satu pasang sepatu. Pilih satu tarif aktif untuk seluruh pesanan. Perubahan tarif tidak mengubah harga dan aturan yang tersimpan pada pesanan lama. Paket memakai jumlah pasang tetap dan harga total paket; per pasang memakai harga satuan pada rentang yang tertera. Kombinasi harga dihitung server.</p>
-        </details>
-      </div>
-      <p v-else>
+      <p v-if="!newPresentation">
         Tarif pesanan · 1 item = 1 pasang. Pilih satu tarif aktif untuk seluruh pesanan. Perubahan tidak mengubah snapshot pesanan lama.
       </p>
-      <div class="actions">
-        <button
-          type="button"
-          class="secondary"
-          :disabled="loading || busy"
-          @click="load"
-        >
-          {{ newPresentation ? 'Muat Ulang' : 'Muat ulang tarif' }}
-        </button>
-        <button
-          v-if="role === 'OWNER' && (newPresentation || !draft)"
-          type="button"
-          @click="edit()"
-        >
-          {{ newPresentation ? 'Tambah Tarif' : 'Tambah tarif' }}
-        </button>
-      </div>
+      <Teleport
+        :disabled="!newPresentation"
+        to="#rate-header-actions"
+      >
+        <div class="actions">
+          <button
+            v-if="!newPresentation"
+            type="button"
+            class="secondary"
+            :disabled="loading || busy"
+            @click="load"
+          >
+            Muat ulang tarif
+          </button>
+          <button
+            v-if="role === 'OWNER' && (newPresentation || !draft)"
+            type="button"
+            @click="edit()"
+          >
+            {{ newPresentation ? 'Tambah Tarif' : 'Tambah tarif' }}
+          </button>
+        </div>
+      </Teleport>
     </div>
     <p
       v-if="error"
@@ -171,7 +167,7 @@ onMounted(load);
               </p>
               <details>
                 <summary :aria-label="`Detail estimasi ${plan.name}`">
-                  Detail estimasi
+                  Detail Estimasi
                 </summary>
                 <p>{{ turnaroundText(plan.turnaroundPolicy) }}</p>
               </details>
@@ -186,7 +182,7 @@ onMounted(load);
                     <th scope="col">
                       Aturan
                     </th><th scope="col">
-                      Jumlah pasang
+                      Jumlah Pasang
                     </th><th scope="col">
                       Harga
                     </th>
@@ -316,13 +312,13 @@ onMounted(load);
           {{ error }}
         </p>
         <fieldset :disabled="busy">
-          <label>Nama tarif *<input
+          <label>Nama Tarif *<input
             v-model="draft.name"
             required
             :autofocus="newPresentation"
             maxlength="100"
           ></label>
-          <label>Waktu penyelesaian<select v-model="draft.turnaroundPolicy"><option value="REGULAR">Reguler · 5 hari kalender, batas 12:00 WIB</option><option value="FAST">Fast · besok 17:00 WIB, batas masuk 17:00 WIB</option></select></label>
+          <label>Waktu Penyelesaian<select v-model="draft.turnaroundPolicy"><option value="REGULAR">Reguler · 5 hari kalender, batas 12:00 WIB</option><option value="FAST">Fast · besok 17:00 WIB, batas masuk 17:00 WIB</option></select></label>
           <p>{{ turnaroundText(draft.turnaroundPolicy) }}</p>
           <label class="checkbox"><input
             v-model="draft.isActive"
@@ -335,11 +331,11 @@ onMounted(load);
           >
             <legend>Aturan {{ index + 1 }}</legend>
             <div class="form-grid">
-              <label>Jenis aturan<select
+              <label>Jenis Aturan<select
                 v-model="rule.kind"
                 @change="changeKind(rule)"
               ><option value="PACKAGE">Paket · harga total paket</option><option value="PER_PAIR">Per pasang · harga satuan</option></select></label>
-              <label>{{ rule.kind === 'PACKAGE' ? 'Jumlah pasang dalam paket' : 'Minimal pasang' }}<input
+              <label>{{ rule.kind === 'PACKAGE' ? 'Jumlah Pasang dalam Paket' : 'Minimal Pasang' }}<input
                 v-model.number="rule.minPairs"
                 type="number"
                 min="1"
@@ -347,14 +343,14 @@ onMounted(load);
                 required
                 @input="rule.kind === 'PACKAGE' && (rule.maxPairs = rule.minPairs)"
               ></label>
-              <label v-if="rule.kind === 'PER_PAIR'">Maksimal pasang (kosong = tanpa batas)<input
+              <label v-if="rule.kind === 'PER_PAIR'">Maksimal Pasang (kosong = tanpa batas)<input
                 :value="rule.maxPairs"
                 type="number"
                 :min="rule.minPairs"
                 step="1"
                 @input="rule.maxPairs = ($event.target as HTMLInputElement).value === '' ? null : Number(($event.target as HTMLInputElement).value)"
               ></label>
-              <label>{{ rule.kind === 'PACKAGE' ? 'Harga total paket (Rp)' : 'Harga per pasang (Rp)' }}<input
+              <label>{{ rule.kind === 'PACKAGE' ? 'Harga Total Paket (Rp)' : 'Harga per Pasang (Rp)' }}<input
                 v-model.number="rule.priceIdr"
                 type="number"
                 min="1"
@@ -368,7 +364,7 @@ onMounted(load);
               class="danger"
               @click="draft.rules.splice(index, 1)"
             >
-              Hapus aturan {{ index + 1 }}
+              Hapus Aturan {{ index + 1 }}
             </button>
           </fieldset>
           <button
@@ -376,7 +372,7 @@ onMounted(load);
             class="secondary"
             @click="draft.rules.push({ kind: 'PER_PAIR', minPairs: 1, maxPairs: null, priceIdr: 1 })"
           >
-            Tambah aturan
+            Tambah Aturan
           </button>
           <p
             v-if="validation"
@@ -384,7 +380,7 @@ onMounted(load);
           >
             {{ validation }}
           </p>
-          <label>Jumlah pasang pratinjau<input
+          <label>Jumlah Pasang Pratinjau<input
             v-model.number="pairs"
             type="number"
             min="1"

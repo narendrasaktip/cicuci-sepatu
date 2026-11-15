@@ -1,9 +1,10 @@
+import { handoverPreference } from './handover.js';
 import { z } from 'zod';
 import { readDisplaySettings } from './display-settings.js';
 import { calculatePricing, initialPricing, planPricing, pricingSnapshot, type RateMode } from './pricing.js';
 import { lockedPlan } from './rate-plans.js';
 import { config } from '../lib/config.js';
-import { defaults, templateWrite, renderTemplate, customerText, encryptionReady, seal, unseal, trackingLink } from './whatsapp-templates.js';
+import { defaults, templateWrite, renderTemplate, customerText, receiptValues, handoverValues, encryptionReady, seal, unseal, trackingLink } from './whatsapp-templates.js';
 import { safeMetadata } from '../lib/audit.js';
 import { type ItemStatus, type Role } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
@@ -88,7 +89,7 @@ export async function confirmPricing(tx: Tx, id: string, totalIdr: number, actor
   }
   return getOrder(tx, id);
 }
-export async function notify(tx: Tx, orderId: string, template: string, key: string, itemId?: string, expectedStatus?: string) {
+export async function notify(tx: Tx, orderId: string, template: string, key: string, itemId?: string, expectedStatus?: string, nextAttemptAt?: Date) {
   const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, include: { customer: true, items: { orderBy: { id: 'asc' } } } });
   const settings = await tx.storeSettings.findUnique({ where: { id: 1 } });
   const activation = settings?.waActivation;
@@ -99,27 +100,31 @@ export async function notify(tx: Tx, orderId: string, template: string, key: str
     const definition = saved.find(t => t.event === template) ?? defaults.find(t => t.event === template);
     if (!definition || !order.trackingSecret || !order.trackingHash || !encryptionReady()) throw new Error('MESSAGE_UNAVAILABLE');
     const raw = unseal(order.trackingSecret); if (typeof raw !== 'string' || hashToken(raw) !== order.trackingHash) throw new Error('TRACKING_UNAVAILABLE');
-    const shoe = (i: typeof order.items[number]) => [i.brand, i.model, i.color].map(customerText).join(' ');
+    const shoe = (i: typeof order.items[number]) => [i.brand, i.model, i.color].map(customerText).filter(Boolean).join(' ');
+    const balanceMarker = template === 'PICKUP_BILL_UNPAID' ? `[SALDO_${randomUUID()}]` : undefined;
     let rendered = renderTemplate(definition.body, {
       sapaan: order.customer.salutation ?? 'Kak', nama_pelanggan: customerText(order.customer.name), total_sepatu: String(order.items.length), nomor_pesanan: order.number,
-      detail_sepatu: order.items.map(i => `• ${shoe(i)}`).join('\n'),
+      detail_sepatu: order.items.map(i => `• ${shoe(i)}${template.startsWith('PICKUP_BILL_') && ['REJECTED', 'DECLINED'].includes(i.outcome ?? '') ? ' — tidak dicuci, biaya pencucian Rp0' : ''}`).join('\n'),
       sepatu: itemId ? shoe(order.items.find(i => i.id === itemId)!) : 'seluruh sepatu pada pesanan',
       url_tracking: trackingLink((await readDisplaySettings(tx, config.APP_BASE_URL)).publicOrigin, raw),
+      ...handoverValues(order),
+      ...(balanceMarker ? { sisa_pembayaran: balanceMarker } : {}),
+      ...(template === 'ORDER_RECEIVED' ? receiptValues(order) : {}),
     });
     if (template === 'CONSENT_REQUEST') {
-      const consent = await tx.consentDecision.findUnique({ where: { id: key } });
-      if (!consent) throw new Error('CONSENT_UNAVAILABLE');
+      const consentId = key.startsWith('consent-reminder:') ? key.slice('consent-reminder:'.length) : key;
+      const consent = await tx.consentDecision.findUnique({ where: { id: consentId } });
+      if (!itemId || !order.items.some(item => item.id === itemId) || !consent || consent.itemId !== itemId) throw new Error('CONSENT_UNAVAILABLE');
       const publicText = (value: string) => value.replace(/[\p{Cc}\u202a-\u202e\u2066-\u2069]/gu, ' ');
       rendered += consent.findings ? `\nTemuan: ${publicText(consent.findings)}\nRisiko: ${publicText(consent.risk)}${consent.customerNote ? `\nCatatan: ${publicText(consent.customerNote)}` : ''}` : `\nDeskripsi risiko (legacy): ${publicText(consent.risk)}`;
     }
-    if (template !== 'CONSENT_REQUEST' && order.pricing) { const p = pricingSnapshot.parse(order.pricing); rendered += `\n${p.stage === 'ESTIMATE' ? 'Estimasi biaya (belum final)' : p.stage === 'FINAL' ? 'Total final hasil verifikasi staf' : 'Harga disetujui/terkunci'}: Rp${p.totalIdr.toLocaleString('id-ID')}. Ditolak/tidak menyetujui risiko: Rp0. Persetujuan risiko tetap terpisah.`; }
     // History never exposes bearer links. The immutable customer snapshot stays encrypted.
-    message = renderTemplate(definition.body, { sapaan: '[sapaan]', nama_pelanggan: '[pelanggan]', total_sepatu: String(order.items.length), nomor_pesanan: order.number, detail_sepatu: '[detail sepatu]', sepatu: '[sepatu terkait]', url_tracking: '[tautan privat]' });
-    encryptedMessage = seal({ message: rendered, trackingHash: order.trackingHash });
+    message = renderTemplate(definition.body, { sapaan: '[sapaan]', nama_pelanggan: '[pelanggan]', total_sepatu: String(order.items.length), nomor_pesanan: order.number, detail_sepatu: '[detail sepatu]', sepatu: '[sepatu terkait]', url_tracking: '[tautan privat]', metode_penyerahan: '[metode penyerahan]', lokasi_penyerahan: '[lokasi penyerahan]', catatan_penyerahan: '[catatan penyerahan]', ...(template === 'PICKUP_BILL_UNPAID' ? { sisa_pembayaran: '[saldo saat klaim]' } : {}), ...(template === 'ORDER_RECEIVED' ? { layanan_tarif: '[layanan dan tarif]', estimasi_total: '[total]', rincian_harga: '[rincian harga]', estimasi_selesai: '[perkiraan selesai]' } : {}) });
+    encryptedMessage = seal({ message: rendered, trackingHash: order.trackingHash, ...(balanceMarker ? { balanceMarker } : {}) });
   } catch { reason ??= 'MESSAGE_UNAVAILABLE'; message = 'Pesan pelanggan tidak tersedia; tidak dikirim.'; }
 
   const existing = await tx.notificationEvent.findUnique({where:{eventKey:key}});
-  const event = await tx.notificationEvent.upsert({ where: { eventKey: key }, create: { provider: 'whatsapp-web.js', status: reason ? 'SKIPPED' : 'PENDING', ...(reason ? { attempts: { create: { attemptNo: 1, provider: 'whatsapp-web.js', status: 'SKIPPED', response: { reason, generation: 0, actualOutbound: false, delivery: 'skipped' } } } } : {}), activation, eventKey: key, orderId, itemId, expectedStatus, template, recipient: order.customer.whatsapp, optedIn: !!order.customer.notificationConsentAt, message, encryptedMessage }, update: {} });
+  const event = await tx.notificationEvent.upsert({ where: { eventKey: key }, create: { provider: 'whatsapp-web.js', status: reason ? 'SKIPPED' : 'PENDING', ...(reason ? { attempts: { create: { attemptNo: 1, provider: 'whatsapp-web.js', status: 'SKIPPED', response: { reason, generation: 0, actualOutbound: false, delivery: 'skipped' } } } } : {}), activation, eventKey: key, orderId, itemId, expectedStatus, template, recipient: order.customer.whatsapp, optedIn: !!order.customer.notificationConsentAt, message, encryptedMessage, ...(nextAttemptAt ? { nextAttemptAt } : {}) }, update: {} });
   if (!existing) await tx.auditLog.create({data:{action:reason ? 'NOTIFICATION_SKIPPED':'NOTIFICATION_QUEUED',entityType:'NotificationEvent',entityId:event.id,metadata:safeMetadata({...(reason ? {reason}:{}),actualOutbound:false})}});
   return event;
 }
@@ -133,8 +138,11 @@ export async function change(tx: Tx, item: { id: string; status: ItemStatus; ord
   const items = await tx.orderItem.findMany({ where: { orderId: item.orderId }, select: { id: true, status: true } });
   const ready = aggregate(items.map(i => i.status)) === 'READY_FOR_PICKUP';
   const wasReady = aggregate(items.map(i => i.id === item.id ? fromStatus : i.status)) === 'READY_FOR_PICKUP';
-  if (toStatus !== 'READY_FOR_PICKUP') await notify(tx, item.orderId, toStatus, history.id, item.id, toStatus);
-  if (ready && !wasReady) await notify(tx, item.orderId, 'READY_FOR_PICKUP', `pickup:${history.id}`);
+  if (toStatus !== 'AWAITING_CONSENT') await notify(tx, item.orderId, toStatus === 'READY_FOR_PICKUP' ? 'ITEM_READY_FOR_PICKUP' : toStatus, history.id, item.id, toStatus);
+  if (ready && !wasReady) {
+    const order = await getOrder(tx, item.orderId);
+    await notify(tx, item.orderId, order.balanceIdr > 0 ? 'PICKUP_BILL_UNPAID' : 'PICKUP_BILL_PAID', `pickup-bill:${history.id}`);
+  }
 }
 export type ItemInput = { serviceId: string; brand: string; model?: string; color?: string; initialNotes: string; quotedPriceIdr?: number; assignedUserId?: string | null };
 export async function addItem(tx: Tx, orderId: string, input: ItemInput, actor: Actor) {
@@ -160,7 +168,7 @@ export function completionEstimate(createdAt: Date, policy: 'REGULAR' | 'FAST' =
   return new Date(Date.UTC(wib.getUTCFullYear(), wib.getUTCMonth(), wib.getUTCDate() + days, 16, 59, 59, 999));
 }
 export const cleaningService = { id: 'cicuci-cleaning-v1', name: 'Cuci sepatu', basePriceIdr: 0, isActive: true } as const;
-export async function createOrder(tx: Tx, input: { customerId: string; estimatedCompletionAt?: string; pickupInstructions?: string; ratePlanId?: string; rateMode?: RateMode; packageServiceId?: string; items: (Omit<ItemInput, 'serviceId'> & { serviceId?: string })[] }, actor: Actor) {
+export async function createOrder(tx: Tx, input: { customerId: string; estimatedCompletionAt?: string; pickupInstructions?: string; handover?: { method: 'STORE' | 'PICKUP' | 'MEETUP' | 'COURIER'; location: string; note: string }; saveHandoverPreference?: boolean; ratePlanId?: string; rateMode?: RateMode; packageServiceId?: string; items: (Omit<ItemInput, 'serviceId'> & { serviceId?: string })[] }, actor: Actor) {
   admin(actor);
   await tx.$queryRaw`SELECT id FROM Customer WHERE id = ${input.customerId} FOR UPDATE`;
   check(await tx.customer.count({ where: { id: input.customerId, archivedAt: null } }), 'CUSTOMER_NOT_FOUND', 404);
@@ -179,7 +187,8 @@ export async function createOrder(tx: Tx, input: { customerId: string; estimated
   const settings = await tx.storeSettings.findUnique({ where: { id: 1 } }); const token = randomTrackingToken();
   const createdAt = new Date();
   const pricing = plan ? planPricing(plan, serviceId!, input.items.length) : input.rateMode ? initialPricing(input.rateMode, serviceId!, input.items.length) : null;
-  const order = await tx.order.create({ data: { customerId: input.customerId, ...(pricing ? { pricing } : {}), createdAt, number: `CS-${createdAt.toISOString().slice(0,10).replaceAll('-','')}-${randomUUID().slice(0,8).toUpperCase()}`, estimatedCompletionAt: completionEstimate(createdAt, pricing?.version === 2 ? pricing.turnaroundPolicy : 'REGULAR'), pickupInstructions: input.pickupInstructions ?? settings?.pickupInstructions ?? '', trackingHash: hashToken(token), trackingSecret: encryptionReady() ? seal(token) : null } });
+  const order = await tx.order.create({ data: { customerId: input.customerId, ...(pricing ? { pricing } : {}), createdAt, number: `CS-${createdAt.toISOString().slice(0,10).replaceAll('-','')}-${randomUUID().slice(0,8).toUpperCase()}`, estimatedCompletionAt: completionEstimate(createdAt, pricing?.version === 2 ? pricing.turnaroundPolicy : 'REGULAR'), pickupInstructions: input.pickupInstructions ?? settings?.pickupInstructions ?? '', ...(input.handover ? { handoverMethod: input.handover.method, handoverLocation: input.handover.method === 'STORE' ? null : input.handover.location, handoverNote: input.handover.note || null } : {}), trackingHash: hashToken(token), trackingSecret: encryptionReady() ? seal(token) : null } });
+  if (input.saveHandoverPreference && input.handover) await tx.customer.update({ where: { id: input.customerId }, data: handoverPreference(input.handover) });
   for (const item of input.items) await addItem(tx, order.id, { ...item, serviceId: serviceId ?? item.serviceId! }, actor);
   await reprice(tx, order.id, actor.id);
   const notification = await notify(tx, order.id, 'ORDER_RECEIVED', `receipt:${order.id}`); await audit(tx, actor.id, 'ORDER_CREATED', order.id);
@@ -226,7 +235,9 @@ export async function issueConsent(tx: Tx, id: string, actor: Actor) {
   await tx.consentDecision.updateMany({ where: { itemId: id, consumedAt: null }, data: { consumedAt: new Date(), decision: 'REISSUED' } });
   const settings = await tx.storeSettings.findUnique({ where: { id: 1 } }); const approvalToken = randomToken();
   const consent = await tx.consentDecision.create({ data: { itemId: id, tokenHash: hashToken(approvalToken), findings: item.inspection.findings, customerNote: item.inspection.customerNote, risk: item.inspection.risk, quotedPriceIdr: item.inspection.quotedPriceIdr, expiresAt: new Date(Date.now() + (settings?.consentHours ?? 48) * 3600000) } });
-  await notify(tx, item.orderId, 'CONSENT_REQUEST', consent.id, id, 'AWAITING_CONSENT'); await audit(tx, actor.id, 'CONSENT_ISSUED', id);
+  await notify(tx, item.orderId, 'AWAITING_CONSENT', `consent-initial:${consent.id}`, id, 'AWAITING_CONSENT');
+  await notify(tx, item.orderId, 'CONSENT_REQUEST', `consent-reminder:${consent.id}`, id, 'AWAITING_CONSENT', new Date(Date.now() + 24 * 3600000));
+  await audit(tx, actor.id, 'CONSENT_ISSUED', id);
   return { approvalToken, expiresAt: consent.expiresAt, consentId: consent.id };
 }
 export const inspectionInput = z.object({
@@ -266,5 +277,12 @@ export async function ledger(tx: Tx, id: string, input: { kind: 'PAYMENT' | 'REF
   check(await lockOrder(tx, id), 'NOT_FOUND', 404); const order = await getOrder(tx, id);
   if (input.kind === 'PAYMENT') { await requireVerifiedPricing(tx, id); check(order.items.every(i => i.outcome && i.status !== 'AWAITING_CONSENT'), 'PRICE_NOT_FINAL'); check(input.amountIdr <= order.balanceIdr, 'OVERPAYMENT'); }
   else check(input.amountIdr <= order.paidIdr && input.reason.trim(), 'INVALID_REFUND');
-  await tx.payment.create({ data: { ...input, orderId: id, originalOrderId: order.id, originalOrderNumber: order.number, actorUserId: actor.id, receivedAt: new Date(input.receivedAt) } }); await audit(tx, actor.id, input.kind, id); return getOrder(tx, id);
+  const payment = await tx.payment.create({ data: { ...input, orderId: id, originalOrderId: order.id, originalOrderNumber: order.number, actorUserId: actor.id, receivedAt: new Date(input.receivedAt) } });
+  await audit(tx, actor.id, input.kind, id);
+  const updated = await getOrder(tx, id);
+  if (aggregate(updated.items.map(i => i.status)) === 'READY_FOR_PICKUP') {
+    if (input.kind === 'PAYMENT' && order.balanceIdr > 0 && updated.balanceIdr <= 0) await notify(tx, id, 'PICKUP_BILL_PAID', `pickup-payment:${payment.id}`);
+    if (input.kind === 'REFUND' && order.balanceIdr <= 0 && updated.balanceIdr > 0) await notify(tx, id, 'PICKUP_BILL_UNPAID', `pickup-refund:${payment.id}`);
+  }
+  return updated;
 }

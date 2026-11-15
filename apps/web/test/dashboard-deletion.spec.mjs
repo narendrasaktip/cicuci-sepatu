@@ -16,6 +16,7 @@ for (const presentation of ['classic', 'new']) test(`new dashboard follows delet
     let body;
     if (req.method() === 'GET' && path === '/display-settings') body = { statusLabels: {} };
     else if (req.method() === 'GET' && path === '/auth/me') body = { user: { id: 'owner', name: 'Owner', role: 'OWNER' }, csrfToken: 'fixture-only' };
+    else if (req.method() === 'GET' && path === '/whatsapp/status') body = { workerAvailable: true, state: 'ready', ready: true, realSendEnabled: false };
     else if (req.method() === 'GET' && path === '/dashboard') {
       dashboardReads++;
       if (hold) await new Promise(resolve => { release = resolve; });
@@ -33,13 +34,46 @@ for (const presentation of ['classic', 'new']) test(`new dashboard follows delet
   const metrics = page.getByRole('region', { name: 'Metrik operasional' });
   const metric = name => metrics.locator('div').filter({ has: page.getByText(name, { exact: true }) }).locator('strong');
   const trash = id => page.getByRole('button', { name: `Hapus pesanan TEST-${id}`, exact: true });
+  async function confirmDeletion(id) {
+    await trash(id).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Ketik HAPUS untuk konfirmasi', { exact: false }).fill('HAPUS');
+    await dialog.getByRole('button', { name: 'Hapus permanen', exact: true }).click();
+  }
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${process.env.TEST_WEB_ORIGIN ?? 'http://127.0.0.1:5173'}/admin`);
   await expect(metric('Pesanan aktif')).toHaveText('3');
   await expect(metric('Sepatu menunggu inspeksi')).toHaveText('1');
+  await expect(page.locator('main')).toHaveClass(/orders-workspace/);
+  await expect(page.locator('main > header')).toHaveClass(/orders-topbar/);
+  await expect(page.locator('.sidebar-brand')).toHaveCSS('padding', '0px');
+  await expect(page.locator('.account button')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(metrics.locator(':scope > div')).toHaveCount(7);
+  await expect(page.getByRole('button', { name: 'Pesanan Baru', exact: true })).toHaveCount(1);
+  await expect(metrics.locator('.metric-revenue')).toHaveCSS('grid-column', 'span 2');
+  for (const width of [1440, 900, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    const cards = await metrics.locator(':scope > div').evaluateAll(nodes => nodes.map(node => {
+      const { x, y, width } = node.getBoundingClientRect();
+      return { x, y, width };
+    }));
+    expect(cards[6].width).toBeGreaterThan(cards[0].width * 1.9);
+    if (width >= 1100) expect(cards[6].y).toBe(cards[5].y);
+    else expect(cards[6].y).toBeGreaterThan(cards[5].y);
+    const values = await metrics.locator(':scope > div > strong').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().y));
+    expect(values[0]).toBe(values[1]);
+    if (width >= 1100) expect(new Set(values.slice(0, 4)).size).toBe(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  await page.getByRole('button', { name: 'Menu', exact: true }).click();
+  await expect(page.getByRole('navigation', { name: 'Navigasi utama' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Keluar', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Menu', exact: true }).click();
+  await expect(page.locator('.account')).toBeHidden();
+  await page.setViewportSize({ width: 1440, height: 1000 });
   const revenue = await metric('Penerimaan bersih').textContent();
   hold = true;
-  await trash('inspection').click();
+  await confirmDeletion('inspection');
   await expect.poll(() => dashboardReads).toBe(2);
   await expect(metrics.locator('strong')).toHaveCount(0);
   hold = false; release();
@@ -47,14 +81,15 @@ for (const presentation of ['classic', 'new']) test(`new dashboard follows delet
   await expect(metric('Sepatu menunggu inspeksi')).toHaveText('0');
   await expect(metric('Pesanan terlambat')).toHaveText('2');
   await expect(page.getByRole('button', { name: 'TEST-inspection', exact: true })).toHaveCount(0);
-  await trash('notifications').click();
+  await confirmDeletion('notifications');
   await expect(page.getByRole('alert')).toContainText('NOTIFICATION_IN_PROGRESS');
+  await page.getByRole('dialog').getByRole('button', { name: 'Batal', exact: true }).click();
   await expect(metric('Pesanan aktif')).toHaveText('2');
   await expect(metric('Sepatu siap diambil')).toHaveText('1');
   await expect(metric('Penerimaan bersih')).toHaveText(revenue);
   await page.getByRole('navigation', { name: 'Navigasi utama' }).getByRole('button', { name: 'Pesanan', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Terapkan / muat ulang', exact: true })).toBeEnabled();
-  await trash('paid').click();
+  await expect(page.getByRole('button', { name: 'Cari', exact: true })).toBeEnabled();
+  await confirmDeletion('paid');
   await expect(page.getByRole('button', { name: 'TEST-paid', exact: true })).toHaveCount(0);
   await page.getByRole('navigation', { name: 'Navigasi utama' }).getByRole('button', { name: 'Dashboard', exact: true }).click();
   await expect(metric('Pesanan aktif')).toHaveText('1');

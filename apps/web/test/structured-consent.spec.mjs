@@ -10,13 +10,14 @@ function fixture() {
   return { id: 'order', number: 'CS-STRUCTURED', createdAt: '2026-11-11T03:00:00Z', customer: { name: 'Fixture', whatsapp: 'optout' }, estimatedCompletionAt: '2026-12-01T00:00:00Z', aggregateStatus: 'WAITING_INSPECTION', totalIdr: 50000, paidIdr: 0, balanceIdr: 50000, paymentStatus: 'UNPAID', items: [item], payments: [] };
 }
 async function setup(page) {
-  const state = { order: fixture(), posts: [], uploads: [], unexpected: [], errors: [], capability: true, capabilityStatus: 200, postStatus: 200 };
+  const state = { order: fixture(), posts: [], uploads: [], unexpected: [], errors: [], capability: true, capabilityStatus: 200, postStatus: 200, rejectFindings: false };
   page.on('pageerror', e => state.errors.push(e.message));
   await page.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname, method = request.method();
     const get = method === 'GET';
     if (get && path === '/api/v1/auth/me') return route.fulfill({ json: { user: { id: 'owner', name: 'Fixture', role: 'OWNER' }, csrfToken: 'fixture' } });
     if (get && path === '/api/v1/display-settings') return route.fulfill({ json: { statusLabels: {} } });
+    if (get && path === '/api/v1/whatsapp/status') return route.fulfill({ json: {} });
     if (get && path === '/api/v1/dashboard') return route.fulfill({ json: {} });
     if (get && path === '/api/v1/orders') return route.fulfill({ json: { data: [state.order], page: { nextCursor: null } } });
     if (get && ['/api/v1/services', '/api/v1/users'].includes(path)) return route.fulfill({ json: { data: [], page: { nextCursor: null } } });
@@ -26,7 +27,7 @@ async function setup(page) {
       return route.fulfill({ status: state.capabilityStatus, json: state.capabilityStatus === 200 ? { structuredRiskConsent: state.capability } : { error: { code: state.capabilityStatus === 404 ? 'NOT_FOUND' : state.capabilityStatus === 403 ? 'FORBIDDEN' : 'INTERNAL_ERROR' } } });
     }
     if (method === 'POST' && path === '/api/v1/items/shoe/photos') {
-      state.uploads.push(request.postDataJSON()); return route.fulfill({ json: { id: 'uploaded' } });
+      const body = request.postDataJSON(); state.uploads.push(body); if (state.rejectFindings && body.kind === 'FINDINGS') return route.fulfill({ status: 400, json: { error: { code: 'VALIDATION_ERROR' } } }); return route.fulfill({ json: { id: 'uploaded' } });
     }
     if (method === 'POST' && path === '/api/v1/items/shoe/inspection') {
       const body = request.postDataJSON(); state.posts.push(body); Object.assign(state.order.items[0], { status: 'AWAITING_CONSENT', outcome: body.outcome, inspection: body });
@@ -53,9 +54,9 @@ async function inspection(page) {
 for (const note of ['', 'Coba cuci semaksimal atas/bawah lebih bersih']) test(`separate inspection fields; optional customer note ${!!note}`, async ({ page }) => {
   const state = await setup(page), dialog = await inspection(page);
   await dialog.getByRole('button', { name: 'Simpan pemeriksaan' }).click(); expect(state.posts).toHaveLength(0);
-  await dialog.getByLabel('Temuan untuk Customer').fill('   '); await dialog.getByLabel('Risiko untuk Customer').fill('   ');
+  await dialog.getByLabel('Temuan untuk Customer', { exact: true }).fill('   '); await dialog.getByLabel('Risiko untuk Customer').fill('   ');
   await dialog.getByRole('button', { name: 'Simpan pemeriksaan' }).click(); await expect(dialog.getByRole('alert')).toContainText('minimal 3 karakter'); expect(state.posts).toHaveLength(0);
-  await dialog.getByLabel('Temuan untuk Customer').fill('  Bagian atas kelupas/debu menempel  ');
+  await dialog.getByLabel('Temuan untuk Customer', { exact: true }).fill('  Bagian atas kelupas/debu menempel  ');
   await dialog.getByLabel('Risiko untuk Customer').fill('Tidak akan bersih/tak bisa dihapus');
   await dialog.getByLabel('Catatan untuk Customer (Opsional)').fill(note);
   await dialog.getByLabel('Catatan pemeriksaan internal (opsional)').fill('PRIVATE_INTERNAL');
@@ -67,17 +68,17 @@ test('old API capability blocks submission; fields retained, actionable activati
   await expect(dialog.getByRole('alert')).toContainText('Deployment diperlukan');
   await dialog.getByLabel('Foto sebelum pengerjaan').setInputFiles(image);
   await dialog.getByLabel('Foto risiko').setInputFiles(image);
-  await dialog.getByLabel('Temuan untuk Customer').fill('Atas kelupas'); await dialog.getByLabel('Risiko untuk Customer').fill('Tidak bersih');
+  await dialog.getByLabel('Temuan untuk Customer', { exact: true }).fill('Atas kelupas'); await dialog.getByLabel('Risiko untuk Customer').fill('Tidak bersih');
   await dialog.getByRole('button', { name: 'Simpan pemeriksaan' }).click(); await expect(dialog.getByRole('alert')).toContainText('migrasi dan aktivasi API baru');
   expect(state.posts).toHaveLength(0); expect(state.uploads).toHaveLength(0);
-  await expect(dialog.getByLabel('Temuan untuk Customer')).toHaveValue('Atas kelupas');
+  await expect(dialog.getByLabel('Temuan untuk Customer', { exact: true })).toHaveValue('Atas kelupas');
   await expect(dialog.getByLabel('Risiko untuk Customer')).toHaveValue('Tidak bersih');
   expect(await dialog.getByLabel('Foto risiko').evaluate(el => el.files[0].name)).toBe(image.name); clean(state);
 });
 const image = { name: 'risk.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64') };
 test('optional supplied risk photo stays private; BEFORE remains required', async ({ page }) => {
   const state = await setup(page); state.order.items[0].photos = []; const dialog = await inspection(page);
-  await dialog.getByLabel('Temuan untuk Customer').fill('Atas kelupas'); await dialog.getByLabel('Risiko untuk Customer').fill('Tidak bersih');
+  await dialog.getByLabel('Temuan untuk Customer', { exact: true }).fill('Atas kelupas'); await dialog.getByLabel('Risiko untuk Customer').fill('Tidak bersih');
   await expect(dialog.getByLabel('Foto risiko')).not.toHaveAttribute('required', '');
   await dialog.getByLabel('Foto risiko').setInputFiles(image);
   await dialog.getByRole('button', { name: 'Simpan pemeriksaan' }).click(); expect(state.uploads).toHaveLength(0); expect(state.posts).toHaveLength(0);
@@ -90,7 +91,7 @@ for (const status of [200, 403, 500, 0]) test(`capability unavailable ${status};
   const state = await setup(page); state.capability = false; state.capabilityStatus = status; const dialog = await inspection(page);
   await expect(dialog.getByRole('alert')).toContainText(status === 200 ? 'Deployment diperlukan' : 'Gagal memeriksa dukungan inspeksi');
   if (status !== 200) await expect(dialog.getByRole('alert')).not.toContainText('Deployment diperlukan');
-  await dialog.getByLabel('Temuan untuk Customer').fill('Atas kelupas'); await dialog.getByLabel('Risiko untuk Customer').fill('Tidak bersih');
+  await dialog.getByLabel('Temuan untuk Customer', { exact: true }).fill('Atas kelupas'); await dialog.getByLabel('Risiko untuk Customer').fill('Tidak bersih');
   await dialog.getByRole('button', { name: 'Simpan pemeriksaan' }).click();
   await expect(dialog.getByRole('button', { name: 'Simpan pemeriksaan' })).toBeEnabled();
   expect(state.posts).toHaveLength(0); expect(state.uploads).toHaveLength(0);
@@ -165,7 +166,7 @@ for (const width of [320, 1440]) for (const mode of ['missing', 'wrong-item', 'a
   const card = page.locator('section.notice'), actionable = !['expired', 'decided'].includes(mode);
   await expect(card.locator('h3')).toHaveText('Menunggu Persetujuan Customer');
   await expect(card.locator('.consent-intro')).toHaveText('Pencucian dilanjutkan setelah Anda menyetujui risiko berikut.');
-  await expect(card.locator('.records > li').last().locator('p').last().locator('span')).toHaveText('Sabtu, 14 November 2026 | 13:27 WIB.');
+  await expect(card.locator('.records > li').last().locator('p').last().locator('span')).toHaveText('Sabtu, 14 November 2026 | 13.27 WIB.');
   await consentOrder(card, ['Temuan', 'Risiko Pencucian', ...(width === 320 ? [] : ['Catatan dari Toko'])]);
   if (width === 1440) await expect(card.locator('.records > li').last().locator('.preserve').filter({ has: page.locator('strong', { hasText: /^Catatan dari Toko$/ }) }).locator('span')).toHaveText('Catatan asli\nBaris kedua');
   await expect(card).not.toContainText('Menunggu Keputusan');
@@ -198,4 +199,25 @@ for (const width of [320, 1440]) for (const mode of ['missing', 'wrong-item', 'a
   await expect(page.locator('.timeline li').first().locator('strong')).toHaveText('Diterima sesuai label toko');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(state.posts).toEqual([]); clean(state);
+});
+
+test('findings upload remains distinct and old API rejection blocks inspection', async ({ page }) => {
+  const state = await setup(page); state.order.items[0].photos = []; state.rejectFindings = true;
+  const dialog = await inspection(page);
+  await dialog.getByLabel('Temuan untuk Customer', { exact: true }).fill('Atas kelupas'); await dialog.getByLabel('Risiko untuk Customer').fill('Tidak bersih');
+  await dialog.getByLabel('Foto sebelum pengerjaan').setInputFiles(image); await dialog.getByLabel('Foto temuan untuk Customer').setInputFiles(image);
+  await dialog.getByRole('button', { name: 'Simpan pemeriksaan' }).click();
+  await expect(dialog.getByRole('alert')).toBeVisible();
+  expect(state.uploads.map(p => p.kind)).toEqual(['BEFORE', 'FINDINGS']); expect(state.posts).toHaveLength(0);
+  state.rejectFindings = false; await dialog.getByRole('button', { name: 'Simpan pemeriksaan' }).click();
+  await expect(dialog).not.toBeVisible(); expect(state.uploads.map(p => p.kind)).toEqual(['BEFORE', 'FINDINGS', 'FINDINGS']); expect(state.posts).toHaveLength(1); clean(state);
+});
+test('tracking labels before and findings separately', async ({ page }) => {
+  const state = await setup(page); state.order.items[0].photos = [
+    { id: 'b', kind: 'BEFORE', customerVisible: true, path: '/before.png' },
+    { id: 'f', kind: 'FINDINGS', customerVisible: true, path: '/findings.png' },
+    { id: 'p', kind: 'INSPECTION', customerVisible: false, path: '/private.png' },
+  ];
+  await page.goto(`${origin}/track/${token}`);
+  await expect(page.locator('figcaption')).toHaveText(['Sebelum', 'Temuan']); clean(state);
 });

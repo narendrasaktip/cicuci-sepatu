@@ -16,7 +16,7 @@ app.get('/api/v1/health', (_req, res) => { res.json({ status: 'ok' }); });
 app.use('/api/v1/auth', auth);
 app.use('/api/v1/whatsapp', whatsapp);
 app.use('/api/v1', (req,res,next) => { if (req.path.startsWith('/track/')) publicApi(req,res,next); else next(); });
-app.use('/api/v1', (req,res,next) => { if (/^\/(display-settings|pricing|whatsapp-templates|customers|services|users|settings|orders|items|photos|dashboard|notifications|audit)(\/|$)/.test(req.path)) operations(req,res,next); else next(); });
+app.use('/api/v1', (req,res,next) => { if (/^\/(display-settings|pricing|whatsapp-templates|whatsapp-broadcasts|customers|services|users|settings|orders|items|photos|dashboard|notifications|audit)(\/|$)/.test(req.path)) operations(req,res,next); else next(); });
 app.use(operationErrors);
 app.use((_req, res) => { res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Endpoint tidak ditemukan.' } }); });
 const errors: ErrorRequestHandler = (error, _req, res, _next) => {

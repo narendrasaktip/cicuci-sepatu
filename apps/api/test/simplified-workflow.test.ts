@@ -35,6 +35,7 @@ test('simplified workflow: independent shoes, evidence, risk, zero fees, direct 
     };
     const tx = fake as unknown as Tx;
     const inspection = { outcome: 'APPROVED' as const, notes: 'safe', risk: '', quotedPriceIdr: 50000 };
+    items[0]!.photos.push({ kind: 'FINDINGS', customerVisible: true });
     await assert.rejects(inspect(tx, 'a', inspection, actor), /BEFORE_PHOTO_REQUIRED/);
     assert.equal(histories.length, 0); assert.equal(events.length, 0);
     items[0]!.photos.push({ kind: 'BEFORE', customerVisible: true });
@@ -96,7 +97,7 @@ test('simplified workflow: independent shoes, evidence, risk, zero fees, direct 
     shoe.outcome = 'APPROVED';
     assert.equal(items[0]!.status, 'DRYING'); assert.equal(events.length, before);
     await transition(tx, 'a', ready, actor);
-    assert.equal(events.length, before); assert.equal(order.aggregateStatus, 'IN_PROGRESS');
+    assert.equal(events.length, before + 1); assert.equal(events.at(-1)?.template, 'ITEM_READY_FOR_PICKUP'); assert.equal(order.aggregateStatus, 'IN_PROGRESS');
     assert.equal(events.filter(e => e.template === 'READY_FOR_PICKUP').length, 0);
     assert.ok(audits.includes('READY_DRY_FINISHING_QC_CONFIRMED'));
     assert.deepEqual(histories.filter(h => h.itemId === 'a').map(h => h.toStatus), ['QUEUED', 'WASHING', 'WASHING', 'WASHING', 'DRYING', 'READY_FOR_PICKUP']);
@@ -108,7 +109,7 @@ test('simplified workflow: independent shoes, evidence, risk, zero fees, direct 
     assert.equal(shoe.status, 'READY_FOR_PICKUP');
     assert.deepEqual(effects(), beforeHandover);
     await assert.rejects(transition(tx, 'a', ready, actor), /INVALID_TRANSITION/);
-    assert.equal(events.length, before);
+    assert.equal(events.length, before + 1);
     for (const legacy of ['PACKING', 'FINISHING', 'QC']) { items[0]!.status = legacy; await transition(tx, 'a', ready, actor); }
     items[0]!.status = 'QC'; await transition(tx, 'a', { toStatus: 'REWORK', reason: 'stain', qcPassed: false }, actor);
     await transition(tx, 'a', { toStatus: 'WASHING', reason: 'repeat' }, actor);
@@ -117,10 +118,10 @@ test('simplified workflow: independent shoes, evidence, risk, zero fees, direct 
     // Last rejection or risk decline can complete an otherwise ready order.
     for (const previous of ['RECEIVED', 'AWAITING_CONSENT']) {
       items[0]!.status = 'READY_FOR_PICKUP'; items[1]!.status = previous;
-      const count = events.filter(e => e.template === 'READY_FOR_PICKUP').length;
+      const count = events.filter(e => e.template === 'PICKUP_BILL_PAID' || e.template === 'PICKUP_BILL_UNPAID').length;
       const { change } = await import('../src/services/orders.js');
       await change(tx, items[1] as never, 'RETURN_PENDING', actor.id, 'fixture');
-      assert.equal(events.filter(e => e.template === 'READY_FOR_PICKUP').length, count + 1);
+      assert.equal(events.filter(e => e.template === 'PICKUP_BILL_PAID' || e.template === 'PICKUP_BILL_UNPAID').length, count + 1);
       assert.equal(order.aggregateStatus, 'READY_FOR_PICKUP');
     }
     await assert.rejects(transition(tx, 'c', { toStatus: 'RETURNED', reason: 'returned' }, actor), /INVALID_TRANSITION/);

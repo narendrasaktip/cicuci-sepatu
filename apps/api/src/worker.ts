@@ -10,7 +10,7 @@ import { z } from 'zod';
 import { config } from './lib/config.js';
 import { db } from './lib/db.js';
 import { connection, lockKey, statusKey, sign, verify, closeControlConnections } from './lib/whatsapp-control.js';
-import { WhatsAppWeb, createBrowserClient, clearBrowserSession } from './integrations/whatsapp/web.js';
+import { WhatsAppWeb, createBrowserClient, clearBrowserSession, hasBrowserSession } from './integrations/whatsapp/web.js';
 import { deliverNotification } from './services/notifications.js';
 const root = fileURLToPath(new URL('../../../var/whatsapp-control/', import.meta.url));
 const pidPath = `${root}worker.pid`;
@@ -70,7 +70,7 @@ async function disarm() {
 async function publish() {
   checkLocal();
   const state = browser!.status;
-  const payload = JSON.stringify({ ...state, workerId: owner, ready: state.state === 'ready', activation, realSendEnabled: !!activation && state.state === 'ready', lastCommand, updatedAt: Date.now() });
+  const payload = JSON.stringify({ ...state, broadcastVersion: 1, workerId: owner, ready: state.state === 'ready', activation, realSendEnabled: !!activation && state.state === 'ready', lastCommand, updatedAt: Date.now() });
   const envelope = JSON.stringify({ payload, signature: await sign(payload) });
   checkLocal();
   const result = await redis!.eval("if redis.call('get',KEYS[1]) == ARGV[1] then return redis.call('set',KEYS[2],ARGV[2],'PX',12000) else return 0 end", 2, lockKey, statusKey, owner, envelope);
@@ -120,10 +120,12 @@ async function main() {
   }, 3000);
   await disarm();
   await assertLease();
-  // A crashed send is ambiguous. Never repeat a potentially submitted message.
-  const recoveredAttempts = await db.notificationAttempt.updateMany({ where: { provider: 'whatsapp-web.js', status: 'PROCESSING' }, data: { status: 'FAILED', response: { error: 'WORKER_RESTART_AMBIGUOUS_SEND', actualOutbound: 'unknown', retryable: false } } });
-  await assertLease();
-  const recoveredEvents = await db.notificationEvent.updateMany({ where: { provider: 'whatsapp-web.js', status: 'PROCESSING' }, data: { status: 'FAILED' } });
+  // Recover both records atomically; a crash between updates must not leave a retryable claim.
+  const { recoveredAttempts, recoveredEvents } = await db.$transaction(async tx => {
+    const recoveredAttempts = await tx.notificationAttempt.updateMany({ where: { provider: 'whatsapp-web.js', status: 'PROCESSING' }, data: { status: 'FAILED', response: { error: 'WORKER_RESTART_AMBIGUOUS_SEND', actualOutbound: 'unknown', retryable: false } } });
+    const recoveredEvents = await tx.notificationEvent.updateMany({ where: { provider: 'whatsapp-web.js', status: 'PROCESSING' }, data: { status: 'FAILED' } });
+    return { recoveredAttempts, recoveredEvents };
+  });
   if (recoveredAttempts.count || recoveredEvents.count) await recordActivity({ action: 'NOTIFICATION_RECOVERY_FAILED', entityType: 'WhatsApp', metadata: { reason: 'WORKER_RESTART_AMBIGUOUS_SEND', actualOutbound: 'unknown', retryable: false, count: recoveredEvents.count, attemptCount: recoveredAttempts.count } });
   await assertLease();
   browser = new WhatsAppWeb(createBrowserClient, state => {
@@ -135,7 +137,7 @@ async function main() {
       void recordActivity({ action: failed ? 'WA_START_FAILED' : 'WA_START_COMPLETED', entityType: 'WhatsApp', actorId: startActor, metadata: { state: state.state, outcome: failed ? 'FAILED' : 'SUCCESS', ...(failed ? { reason: state.error ?? 'NOT_READY' } : {}), ...state.diagnostic } }).catch(() => fail('WORKER_AUDIT_FAILED'));
     }
     if (state.state !== 'ready') void disarm().catch(() => fail('WORKER_DISARM_FAILED'));
-  }, clearBrowserSession);
+  }, clearBrowserSession, true);
   queue = new Queue('notifications', { connection });
   queue.on('error', () => fail('WORKER_OUTBOX_QUEUE_ERROR'));
   worker = new Worker('notifications', job => exclusive(async () => {
@@ -145,7 +147,7 @@ async function main() {
       // Recheck after SQL claim/audit awaits, immediately before browser submission.
       await assertLease();
       if (!permission || activation !== permission) throw new Error('ACTIVATION_CHANGED');
-      return browser!.send(input);
+      return input.qr ? browser!.sendQr(input) : browser!.send(input);
     } });
     const event = await db.notificationEvent.findUnique({where:{id:String(job.data.eventId)}});
     if (!stopping && event?.provider === 'whatsapp-web.js' && event.status === 'FAILED') await disarm();
@@ -162,7 +164,7 @@ async function main() {
     const actor = await db.user.findUnique({ where: { id: input.actorId } });
     if (!actor?.isActive || actor.role !== 'OWNER') throw new Error('FORBIDDEN');
     await assertLease();
-    if (input.command === 'start') { if (browser!.status.state !== 'ready') await disarm(); await assertLease(); startActor = actor.id; lastCommand = { command: 'start', status: 'starting' }; await browser!.start(); }
+    if (input.command === 'start') { if (browser!.status.state !== 'ready') await disarm(); await assertLease(); startActor = actor.id; lastCommand = { command: 'start', status: 'starting' }; await browser!.startManually(); }
     if (input.command === 'disconnect') { await disarm(); await assertLease(); await browser!.stop(true); }
     if (input.command === 'deactivate') await disarm();
     if (input.command === 'activate') {
@@ -196,6 +198,7 @@ async function main() {
   }
   try { await publish(); } catch { if (!stopping) fail('WORKER_STATUS_PUBLISH_FAILED'); return; }
   checkLocal();
+  if (await hasBrowserSession()) { await assertLease(); await browser.start(); }
   clearTimeout(startupTimer);
   timer = setInterval(() => { void dispatch().catch(() => fail('WORKER_DISPATCH_FAILED')); }, 3000);
   void dispatch().catch(() => fail('WORKER_DISPATCH_FAILED'));

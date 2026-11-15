@@ -6,11 +6,12 @@ import { test } from 'node:test';
 test('automatic estimate: calendar boundaries, server creation clock, legacy validation, replay and edit', async t => {
   process.env.DATABASE_URL = 'mysql://fake:fake@127.0.0.1:1/fake';
   process.env.REDIS_URL = 'redis://127.0.0.1:1';
-  process.env.APP_BASE_URL = 'http://example.test';
+  process.env.APP_BASE_URL = 'https://example.test';
   let order: Record<string, unknown> = {}; let creates = 0; let histories = 0; let events = 0;
   const cache = new Map<string, object>();
   const fake = {
     session: { findUnique: async () => ({ user: { id: 'owner', role: 'OWNER', isActive: true }, csrfToken: 'csrf', expiresAt: new Date('2100-01-01') }) },
+    user: { findUnique: async () => ({ role: 'OWNER', isActive: true }) },
     customer: { count: async () => 1 },
     service: { findUnique: async () => ({ name: 'Clean', isActive: true, basePriceIdr: 50000 }) },
     storeSettings: { findUnique: async () => null },
@@ -36,7 +37,7 @@ test('automatic estimate: calendar boundaries, server creation clock, legacy val
   const hook = registerHooks({ resolve(s, context, next) {
     if (s.endsWith('/controllers/whatsapp.js')) return { url: 'data:text/javascript,export const whatsapp=(_req,_res,next)=>next();', shortCircuit: true };
     if (s.endsWith('/lib/db.js')) return { url: 'data:text/javascript,export const db=globalThis[Symbol.for("cicuci.estimate.test")];', shortCircuit: true };
-    if (s.endsWith('/lib/whatsapp-control.js')) return { url: 'data:text/javascript,export async function notificationBlocker(){throw new Error("Forbidden WhatsApp access");}', shortCircuit: true };
+    if (s.endsWith('/lib/whatsapp-control.js')) return { url: 'data:text/javascript,export function workerSnapshot(){throw new Error("Forbidden WhatsApp access");} export async function notificationBlocker(){throw new Error("Forbidden WhatsApp access");}', shortCircuit: true };
     return next(s, context);
   } });
   try {

@@ -13,6 +13,7 @@ const messages: Record<string, string> = {
   ARCHIVED: 'Data tidak tersedia untuk perubahan.',
   CURRENT_ACCOUNT: 'Akun sendiri tidak boleh dihapus, dinonaktifkan, atau diturunkan perannya.',
   CUSTOMER_HAS_ORDERS: 'Pelanggan masih memiliki pesanan. Hapus pesanan yang memenuhi syarat terlebih dahulu; tidak ada penghapusan berantai.',
+  CUSTOMER_PHONE_DUPLICATE: 'Nomor WhatsApp sudah terdaftar. Pilih pelanggan yang sudah ada atau gunakan nomor lain.',
   ORDER_HAS_PAYMENTS: 'Pesanan memiliki catatan pembayaran atau pengembalian dana. Tidak dapat dihapus; ledger wajib dipertahankan meskipun saldo nol.',
   NOTIFICATION_IN_PROGRESS: 'Notifikasi masih antre atau sedang diproses/diklaim. Penghapusan ditolak untuk mencegah pengiriman bersamaan.',
   USER_HAS_HISTORY: 'Pengguna dirujuk penugasan atau riwayat operasional. Tidak dapat dihapus; riwayat wajib dipertahankan.',

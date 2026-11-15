@@ -1,3 +1,4 @@
+import { BrowserSendError } from './send-probe.js';
 export type InitializationDiagnostic = { stage: 'factory' | 'initialize'; errorType: string; diagnosticCode: string; operation: string };
 // Fixed vocabularies only. Even exception names/codes can contain caller-supplied secrets.
 export function initializationDiagnostic(error: unknown, stage: InitializationDiagnostic['stage']): InitializationDiagnostic {
@@ -28,16 +29,29 @@ export function initializationCause(error: unknown): string {
   return 'INITIALIZATION_FAILED';
 }
 
-export type SendDiagnostic = { stage: 'send'; errorType: string; diagnosticCode: string; operation: 'sendMessage' };
+export type SendDiagnostic = { stage: 'send'; errorType: string; diagnosticCode: string; operation: 'sendMessage'; sendPhase: 'getChat' | 'sendSeen' | 'processMediaData' | 'uploadMedia' | 'submitMessage' | 'getMessageModel' | 'sendMessage' | 'unknown' };
 // Fixed vocabularies only; never return exception text, recipient, message or IDs.
 export function sendDiagnostic(error: unknown): SendDiagnostic {
+  if (error instanceof BrowserSendError) return { ...error.diagnostic };
   const name = error instanceof Error ? error.name : '';
   const code = error instanceof Error && 'code' in error ? error.code : undefined;
   const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  const stack = error instanceof Error ? error.stack ?? '' : '';
+  // Fixed dependency frame names only; never persist the stack or exception text.
+  const phase = stack.match(/\bat (?:[\w.]+\.)?(getChat|sendSeen|processMediaData|uploadMedia|getMessageModel|sendMessage)\s*\(/)?.[1];
   return {
     stage: 'send',
+    sendPhase: (phase ?? 'unknown') as SendDiagnostic['sendPhase'],
     errorType: ['Error', 'TypeError', 'ReferenceError', 'SyntaxError', 'TimeoutError', 'ProtocolError', 'TargetCloseError'].includes(name) ? name : typeof error === 'string' ? 'String' : 'Unknown',
-    diagnosticCode: typeof code === 'string' && ['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT'].includes(code) ? code : /Invalid parameters/i.test(message) ? 'INVALID_PARAMETERS' : /Execution context was destroyed/i.test(message) ? 'CONTEXT_DESTROYED' : /Evaluation failed/i.test(message) ? 'EVALUATION_FAILED' : 'UNKNOWN',
+    diagnosticCode: typeof code === 'string' && ['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT'].includes(code) ? code
+      : /QR_PREPARATION_FAILED/.test(message) ? 'QR_PREPARATION_FAILED'
+      : /SEND_TIMEOUT/.test(message) || name === 'TimeoutError' ? 'SEND_TIMEOUT'
+      : /upload failed: media entry was not created/.test(message) ? 'MEDIA_UPLOAD_FAILED'
+      : /media-fault: sendToChat filehash undefined/.test(message) ? 'MEDIA_PREPARATION_FAILED'
+      : /Invalid parameters/i.test(message) ? 'INVALID_PARAMETERS'
+      : /Execution context was destroyed/i.test(message) ? 'CONTEXT_DESTROYED'
+      : /Target closed|Session closed|Connection closed/i.test(message) ? 'BROWSER_CLOSED'
+      : /Evaluation failed/i.test(message) ? 'EVALUATION_FAILED' : 'UNKNOWN',
     operation: 'sendMessage',
   };
 }

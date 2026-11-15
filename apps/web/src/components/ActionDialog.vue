@@ -38,6 +38,7 @@ async function save() { busy.value = true; error.value = ''; try { await props.s
       </p>
       <div
         v-for="field in fields"
+        v-show="field.key !== 'preferredLocation' || values.preferredMethod !== 'STORE'"
         :key="field.key"
         class="field"
       >

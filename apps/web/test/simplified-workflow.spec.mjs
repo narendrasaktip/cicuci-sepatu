@@ -86,6 +86,19 @@ test('inspection upload-first, retain fields on upload/submit failure, reuse sav
   const submits = f.calls.filter(c => c.path.endsWith('/inspection')); expect(submits[0].key).toBe(submits[1].key);
   expect(f.order.items[1].status).toBe('RECEIVED'); await expect(shoes.first().getByRole('button', { name: 'Mulai pengerjaan' })).toBeVisible();
 });
+test('multiple public findings retry without duplicating uploads', async ({ page }) => {
+  const f = await setup(page); await page.locator('article.shoe').first().getByRole('button', { name: 'Periksa sepatu' }).click();
+  const dialog = page.getByRole('dialog');
+  await file(page, 'Foto sebelum pengerjaan');
+  await dialog.getByLabel('Foto temuan untuk Customer', { exact: false }).setInputFiles([
+    { name: 'one.png', mimeType: 'image/png', buffer: png }, { name: 'two.png', mimeType: 'image/png', buffer: png }
+  ]);
+  f.failSubmit(); await dialog.getByRole('button', { name: 'Simpan pemeriksaan' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('SUBMIT_FAILED');
+  expect(f.calls.filter(c => c.path.endsWith('/photos')).map(c => [c.payload.kind, c.payload.customerVisible])).toEqual([['BEFORE', true], ['BEFORE', true], ['BEFORE', true]]);
+  await dialog.getByRole('button', { name: 'Simpan pemeriksaan' }).click(); await expect(dialog).not.toBeVisible();
+  expect(f.saved.size).toBe(3); expect(f.calls.filter(c => c.path.endsWith('/photos'))).toHaveLength(3);
+});
 test('risk photo automatic/private; risk pending has no start-work action', async ({ page }) => {
   const f = await setup(page); await page.locator('article.shoe').first().getByRole('button', { name: 'Periksa sepatu' }).click();
   const dialog = page.getByRole('dialog'); await dialog.getByLabel('Hasil pemeriksaan').selectOption('NEEDS_CONSENT');

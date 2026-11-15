@@ -1,20 +1,46 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { registerHooks } from 'node:module';
-import { defaults, eventNames, templateWrite, renderTemplate, previewValues, seal, unseal, trackingLink, deliveryPayload } from '../src/services/whatsapp-templates.js';
+import { defaults, eventNames, templateWrite, renderTemplate, previewValues, handoverValues, seal, unseal, trackingLink, deliveryPayload } from '../src/services/whatsapp-templates.js';
 import { hashToken } from '../src/lib/security.js';
 
 test('all emitted events: Indonesian defaults, literal substitution, strict placeholders and content', () => {
   assert.deepEqual(defaults.map(t => t.event).sort(), Object.keys(eventNames).sort());
   for (const definition of defaults) {
     templateWrite.parse(definition);
+    const orderLevel = ['ORDER_RECEIVED', 'PICKUP_BILL_UNPAID', 'PICKUP_BILL_PAID'].includes(definition.event);
+    assert.equal(definition.body.includes('{detail_sepatu}'), orderLevel);
+    if (!orderLevel) assert.match(definition.body, /\{sepatu\}/);
     const rendered = renderTemplate(definition.body, previewValues);
+    if (!orderLevel) assert.doesNotMatch(rendered, /Sepatu Contoh Putih/);
     assert.match(rendered, /Cicuci Sepatu/); assert.match(rendered, /Dina/); assert.match(rendered, /Sepatu Contoh Biru/); assert.doesNotMatch(rendered, /Deep Clean|Basic Clean/);
     assert.doesNotMatch(rendered, /\{[a-z_]+\}|ORDER_RECEIVED|CONSENT_REQUEST/);
   }
   const body = defaults[0]!.body;
   for (const invalid of [body + '{nama}', body + '{taotal_sepatu}', body + '{constructor}', body + '{{nama_pelanggan}}', body + '${process.env}', body + '\u0000', body + 'https://evil.test', body + '<script>alert(1)</script>', 'a'.repeat(2001), body.replace('{url_tracking}', '')]) assert.equal(templateWrite.safeParse({ ...defaults[0], body: invalid }).success, false);
   assert.match(renderTemplate(body, { ...previewValues, nama_pelanggan: '{url_tracking} $&' }), /\{url_tracking\} \$&/); // replacements never recursively evaluate customer input
+});
+
+test('handover placeholders work for every event with safe legacy fallback', () => {
+  for (const definition of defaults) {
+    const body = definition.body + '\n{metode_penyerahan} | {lokasi_penyerahan} | {catatan_penyerahan}';
+    assert.equal(templateWrite.safeParse({ ...definition, body }).success, true);
+    assert.match(renderTemplate(body, previewValues), /Janjian \| Lokasi contoh \| Catatan contoh/);
+  }
+  assert.deepEqual(handoverValues({}), { metode_penyerahan: 'Belum tersedia', lokasi_penyerahan: 'Belum tersedia', catatan_penyerahan: 'Belum tersedia' });
+  assert.deepEqual(handoverValues({ handoverMethod: 'STORE' }), { metode_penyerahan: 'Di toko', lokasi_penyerahan: 'Tidak ada', catatan_penyerahan: 'Tidak ada' });
+  assert.equal(handoverValues({ handoverMethod: 'PICKUP', handoverNote: 'Halo\n\u202eaman' }).catatan_penyerahan, 'Halo  aman');
+  assert.equal(handoverValues({ handoverMethod: 'unknown', handoverNote: 'private' }).catatan_penyerahan, 'Belum tersedia');
+});
+
+test('pickup billing templates validate the remaining balance placeholder without enabling delivery', () => {
+  const unpaid = defaults.find(t => t.event === 'PICKUP_BILL_UNPAID')!;
+  const paid = defaults.find(t => t.event === 'PICKUP_BILL_PAID')!;
+  assert.match(renderTemplate(unpaid.body, previewValues), /Rp50\.000/);
+  assert.equal(templateWrite.safeParse({ ...unpaid, body: unpaid.body.replace('{sisa_pembayaran}', 'Rp0') }).success, false);
+  assert.equal(templateWrite.safeParse({ ...paid, body: paid.body + ' {sisa_pembayaran}' }).success, false);
+  assert.equal(templateWrite.safeParse({ ...defaults[0], body: defaults[0]!.body + ' {sisa_pembayaran}' }).success, false);
+  assert.throws(() => renderTemplate(unpaid.body, { ...previewValues, sisa_pembayaran: undefined }));
 });
 
 test('secure origin, tracking and consent fragment; AES-GCM ciphertext/tamper/key rotation', () => {
@@ -40,25 +66,31 @@ test('outbox snapshots multiple shoes safely; consent link encrypted, snapshots 
   try {
     const { notify } = await import('../src/services/orders.js');
     const raw = 'cd'.repeat(32); let saved: unknown[] = []; let created: Record<string, unknown> | undefined;
-    const order = { id: 'order', number: 'CS-TEST', trackingHash: hashToken(raw), trackingSecret: seal(raw), customer: { name: 'Dina', whatsapp: '+6281234567890', notificationConsentAt: new Date(), notes: 'PRIVATE CUSTOMER' }, items: [{ id: 'shoe1', brand: 'Brand1', model: 'Model', color: 'Biru', serviceName: 'Deep Clean', initialNotes: 'PRIVATE NOTE', risk: 'PRIVATE RISK' }, { id: 'shoe2', brand: 'Brand2', model: 'Model', color: 'Putih', serviceName: 'Basic Clean' }] };
+    const order = { id: 'order', number: 'CS-TEST', trackingHash: hashToken(raw), trackingSecret: seal(raw), handoverMethod: 'PICKUP', handoverLocation: 'Alamat pesanan', handoverNote: 'Pesan pelanggan', customer: { name: 'Dina', whatsapp: '+6281234567890', notificationConsentAt: new Date(), notes: 'PRIVATE CUSTOMER', preferredHandoverLocation: 'PRIVATE PROFILE' }, items: [{ id: 'shoe1', brand: 'Brand1', model: 'Model', color: 'Biru', serviceName: 'Deep Clean', initialNotes: 'PRIVATE NOTE', risk: 'PRIVATE RISK' }, { id: 'shoe2', brand: 'Brand2', model: 'Model', color: 'Putih', serviceName: 'Basic Clean' }] };
     const audits: unknown[] = [];
-    const consent = { findings: 'Bagian atas kelupas', risk: 'Tidak akan bersih', customerNote: 'Coba semaksimal mungkin' };
+    const consent = { itemId: 'shoe1', findings: 'Bagian atas kelupas', risk: 'Tidak akan bersih', customerNote: 'Coba semaksimal mungkin' };
     const tx = { consentDecision: { findUnique: async () => consent }, $queryRaw: async () => [], order: { findUniqueOrThrow: async () => order }, storeSettings: { findUnique: async () => ({ waActivation: 'activation', waTemplates: saved }) }, notificationEvent: { findUnique: async () => created, upsert: async ({ create }: { create: Record<string, unknown> }) => { created ??= { id: 'event', ...create }; return created; } }, auditLog: { create: async (v: unknown) => { audits.push(v); } } };
     await notify(tx as never, 'order', 'ORDER_RECEIVED', 'receipt');
     const first = created!; assert.equal(first.status, 'PENDING');
     const payload = deliveryPayload.parse(unseal(String(first.encryptedMessage)));
-    assert.match(payload.message, /Jumlah: 2 pasang/); assert.match(payload.message, /\*Rincian pesanan\*/); assert.match(payload.message, /_Terima kasih telah memilih Cicuci Sepatu\._/); assert.match(payload.message, /• Brand1 Model Biru/); assert.match(payload.message, /• Brand2 Model Putih/); assert.doesNotMatch(payload.message, /Deep Clean|Basic Clean/); assert.match(payload.message, new RegExp(raw));
+    assert.match(payload.message, /Jumlah: 2 pasang/); assert.match(payload.message, /\*Rincian pesanan\*/); assert.match(payload.message, /_Terima kasih telah memilih Cicuci Sepatu\._/); assert.match(payload.message, /• Brand1 Model Biru/); assert.match(payload.message, /• Brand2 Model Putih/); assert.match(payload.message, /Deep Clean \/ Basic Clean/); assert.match(payload.message, /Biaya: Belum tersedia/); assert.match(payload.message, new RegExp(raw));
     assert.doesNotMatch(payload.message, /PRIVATE/); assert.doesNotMatch(JSON.stringify(audits), /Dina|Brand1|cdcd|efef/);
     assert.doesNotMatch(String(first.message), /cdcd|Dina/);
     saved = ['ORDER_RECEIVED', 'CONSENT_REQUEST', 'WASHING', 'READY_FOR_PICKUP'].map(event => {
       const definition = defaults.find(t => t.event === event)!;
-      return { ...definition, body: definition.body.replace('Halo {sapaan}', `Kustom ${event} {sapaan}`) };
+      return { ...definition, body: definition.body.replace('Halo {sapaan}', `Kustom ${event} {sapaan}`) + '\n{metode_penyerahan} | {lokasi_penyerahan} | {catatan_penyerahan}' };
     });
     await notify(tx as never, 'order', 'ORDER_RECEIVED', 'receipt'); assert.equal(created, first);
     for (const event of ['ORDER_RECEIVED', 'WASHING', 'READY_FOR_PICKUP']) {
       created = undefined; await notify(tx as never, 'order', event, `custom-${event}`, event === 'WASHING' ? 'shoe1' : undefined);
-      assert.match(deliveryPayload.parse(unseal(String(created!.encryptedMessage))).message, new RegExp(`Kustom ${event}`));
+      const outgoing = deliveryPayload.parse(unseal(String(created!.encryptedMessage))).message;
+      assert.match(outgoing, new RegExp(`Kustom ${event}`));
+      assert.match(outgoing, /Dijemput \| Alamat pesanan \| Pesan pelanggan/);
+      if (event === 'WASHING') { assert.match(outgoing, /Brand1 Model Biru/); assert.doesNotMatch(outgoing, /Brand2 Model Putih/); }
+      if (event === 'ORDER_RECEIVED') assert.match(outgoing, /Brand2 Model Putih/);
+      assert.doesNotMatch(outgoing, /PRIVATE/);
       assert.match(String(created!.message), new RegExp(`Kustom ${event}`));
+      assert.doesNotMatch(String(created!.message), /Alamat pesanan|Pesan pelanggan/);
     }
     created = undefined; await notify(tx as never, 'order', 'CONSENT_REQUEST', 'consent', 'shoe1', 'AWAITING_CONSENT');
     assert.doesNotMatch(deliveryPayload.parse(unseal(String(created!.encryptedMessage))).message, /#approval=/);
@@ -70,6 +102,10 @@ test('outbox snapshots multiple shoes safely; consent link encrypted, snapshots 
     await notify(tx as never, 'order', 'CONSENT_REQUEST', 'legacy', 'shoe1', 'AWAITING_CONSENT');
     const legacy = deliveryPayload.parse(unseal(String(created!.encryptedMessage))).message;
     assert.match(legacy, /Deskripsi risiko \(legacy\): Tidak akan bersih/); assert.doesNotMatch(legacy, /Temuan:|Catatan:/);
+    created = undefined; consent.itemId = 'shoe2'; await notify(tx as never, 'order', 'CONSENT_REQUEST', 'mismatch', 'shoe1', 'AWAITING_CONSENT');
+    assert.equal(created!.status, 'SKIPPED'); assert.equal(created!.encryptedMessage, undefined);
+    created = undefined; consent.itemId = 'shoe1'; await notify(tx as never, 'order', 'CONSENT_REQUEST', 'missing-item');
+    assert.equal(created!.status, 'SKIPPED'); assert.equal(created!.encryptedMessage, undefined);
     order.trackingSecret = ''; created = undefined; await notify(tx as never, 'order', 'WASHING', 'wash', 'shoe1', 'WASHING'); assert.equal(created!.status, 'SKIPPED');
     assert.doesNotMatch(JSON.stringify(created), /cdcd|efef|PRIVATE/);
   } finally { hook.deregister(); }

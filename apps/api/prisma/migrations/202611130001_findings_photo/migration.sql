@@ -1,0 +1,2 @@
+-- Photo.kind is already VARCHAR(20), so FINDINGS requires no schema change.
+-- Existing photo kinds and records are intentionally unchanged.

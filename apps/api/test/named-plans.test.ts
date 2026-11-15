@@ -52,7 +52,7 @@ test('v2 snapshot immutable across catalog edits, accepted 5 to 4, pending conse
 });
 
 test('named catalog + intake HTTP isolated: roles/CSRF/validation, revision lock, retry, snapshots and deactivation', async t => {
-  process.env.DATABASE_URL = 'mysql://fake:fake@127.0.0.1:1/fake'; process.env.REDIS_URL = 'redis://127.0.0.1:1'; process.env.APP_BASE_URL = 'http://example.test';
+  process.env.DATABASE_URL = 'mysql://fake:fake@127.0.0.1:1/fake'; process.env.REDIS_URL = 'redis://127.0.0.1:1'; process.env.APP_BASE_URL = 'https://example.test';
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   type Row = Record<string, any>; // Isolated Prisma fixture, never live DB.
   let role = 'OWNER'; let order: Row = {}; let orderCreates = 0; let planCreates = 0; let updates = 0; let locks = 0;
@@ -79,10 +79,10 @@ test('named catalog + intake HTTP isolated: roles/CSRF/validation, revision lock
   };
   Reflect.set(globalThis, Symbol.for('cicuci.plans.test'), fake);
   const hooks = registerHooks({ resolve(s, c, next) {
-    if (s.endsWith('/lib/config.js')) return { url: 'data:text/javascript,export const config={APP_BASE_URL:"http://example.test",NODE_ENV:"test"};', shortCircuit: true };
+    if (s.endsWith('/lib/config.js')) return { url: 'data:text/javascript,export const config={APP_BASE_URL:"https://example.test",NODE_ENV:"test"};', shortCircuit: true };
     if (s.endsWith('/lib/db.js')) return { url: 'data:text/javascript,export const db=globalThis[Symbol.for("cicuci.plans.test")];', shortCircuit: true };
     if (s.endsWith('/controllers/whatsapp.js')) return { url: 'data:text/javascript,export const whatsapp=(_q,_s,n)=>n();', shortCircuit: true };
-    if (s.endsWith('/lib/whatsapp-control.js')) return { url: 'data:text/javascript,export async function notificationBlocker(){throw Error("Forbidden WhatsApp access");}', shortCircuit: true };
+    if (s.endsWith('/lib/whatsapp-control.js')) return { url: 'data:text/javascript,export function workerSnapshot(){throw new Error("Forbidden WhatsApp access");} export async function notificationBlocker(){throw Error("Forbidden WhatsApp access");}', shortCircuit: true };
     return next(s, c);
   } });
   const { app } = await import('../src/app.js'); const { reprice, confirmPricing, transition } = await import('../src/services/orders.js');
@@ -120,7 +120,7 @@ test('named catalog + intake HTTP isolated: roles/CSRF/validation, revision lock
     assert.deepEqual(competing.map(r => r.status).sort(), [200, 409]); assert.equal(plans.get(plan.id)!.revision, 4);
     assert.equal(audits.filter(a => a.action === 'RATE_PLAN_CREATED').length, 1); assert.equal(audits.filter(a => a.action === 'RATE_PLAN_UPDATED').length, 3); assert.ok(locks >= 5);
     order.items[0].outcome = 'DECLINED'; await reprice(tx, order.id); assert.equal(order.pricing.allocations['item-0'], 0); assert.equal(order.pricing.allocations['item-1'], 43750);
-    order.items[1].outcome = 'NEEDS_CONSENT'; order.items[1].consents = []; await assert.rejects(transition(tx, 'item-1', { toStatus: 'WASHING', reason: '' }, { id: 'owner', role: 'OWNER' }), /PRICE_NOT_FINAL/);
+    order.items[1].outcome = 'NEEDS_CONSENT'; order.items[1].consents = []; await assert.rejects(transition(tx, 'item-1', { toStatus: 'WASHING', reason: '' }, { id: 'owner', role: 'OWNER' }), /CONSENT_REQUIRED/);
     const fastInput = { name: 'Fast', isActive: true, turnaroundPolicy: 'FAST', rules: [pack(1, 80000)] };
     assert.equal((await call('/pricing/plans', 'POST', { ...fastInput, turnaroundPolicy: 'UNKNOWN' })).status, 400);
     const fast = await (await call('/pricing/plans', 'POST', fastInput)).json();

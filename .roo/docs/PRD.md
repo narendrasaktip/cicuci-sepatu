@@ -247,3 +247,9 @@ Isolated verification for this investigation: 8/8 backend tests passed (display-
 ## Confirmed packing/QC workflow — 2026-11-12 (source only)
 
 Supersedes the separate-stage requirement: the drying action opens the existing photo/QC form without a transition or notification. Successful confirmation records DRYING to READY_FOR_PICKUP directly; the next fulfillment action is payment-guarded handover. Existing PACKING records/history and older API transition remain compatible. Failed QC can enter REWORK. Existing consent, price, photo, role, audit, aggregate and outbox safeguards remain; no synthetic status or automatic messaging changes. No new migration or historical backfill. Activation requires backup/review, pending migrations and worker/notification readiness review; no deployment or live order changes in this patch.
+
+## Per-order handover — 2026-11-13 (source only)
+
+New orders record a customer-visible handover method: Di toko, Dijemput, Janjian or Kurir. Location is required except Di toko; a customer-visible note is optional. Owner/admin may edit the arrangement in order detail. Tracking displays it when present. Existing pickup instructions remain separate; existing customer and shoe internal notes remain private and unchanged. Legacy orders without an arrangement remain valid. The additive nullable migration requires separate authorization before deployment; no backfill.
+
+Customer handover preference is saved only when explicitly selected while creating an order. Selecting an existing customer prefills the saved method and location, which remain editable; handover notes are never copied from the profile. Each order retains its own arrangement independently of later profile changes. Preference migration and deployment require separate authorization; no backfill.

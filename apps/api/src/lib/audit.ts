@@ -8,7 +8,7 @@ const codes = new Set([
   'VALIDATION_ERROR','UNAUTHENTICATED','FORBIDDEN','NOT_FOUND','INTERNAL_ERROR','UPLOAD_INVALID','RATE_LIMITED','CONFLICT','WORKER_OFFLINE',
   'INVALID_CREDENTIALS','INVALID_COMMAND','COMMAND_EXPIRED','NOT_READY','AUTH_FAILED','LOGOUT_FAILED','BROWSER_CLOSE_FAILED','SESSION_DELETE_FAILED',
   'BROWSER_PROFILE_LOCKED','BROWSER_PERMISSION_DENIED','BROWSER_NOT_FOUND','BROWSER_SANDBOX_FAILED','WHATSAPP_NETWORK_FAILED','INITIALIZATION_TIMEOUT','BROWSER_LAUNCH_FAILED','INITIALIZATION_FAILED','BROWSER_PROTOCOL_FAILED','WHATSAPP_PAGE_FAILED',
-  'NOT_ENABLED','INVALID_WORKER_STATUS','PROVIDER_NOT_READY','ACTIVATION_CHANGED','NO_CUSTOMER','MESSAGE_UNAVAILABLE','TRACKING_CHANGED','NO_CURRENT_OPT_IN','RECIPIENT_CHANGED','STALE_ORDER','STALE_STATE','STALE_CONSENT','ATTEMPTS_EXHAUSTED','AMBIGUOUS_SEND_MANUAL_REVIEW','WORKER_RESTART_AMBIGUOUS_SEND',
+  'NOT_ENABLED','INVALID_WORKER_STATUS','PROVIDER_NOT_READY','ACTIVATION_CHANGED','NO_CUSTOMER','MESSAGE_UNAVAILABLE','TRACKING_CHANGED','NO_CURRENT_OPT_IN','RECIPIENT_CHANGED','STALE_ORDER','STALE_STATE','STALE_CONSENT','ATTEMPTS_EXHAUSTED','AMBIGUOUS_SEND_MANUAL_REVIEW','WORKER_RESTART_AMBIGUOUS_SEND','QR_PREPARATION_FAILED',
   'BEFORE_PHOTO_REQUIRED','CONSENT_REQUIRED','CUSTOMER_NOT_FOUND','INVALID_REFUND','INVALID_TRANSITION','ITEM_CLOSED','ITEM_LOCKED','NOT_RETRYABLE','ORDER_LOCKED','OVERPAYMENT','PRICE_NOT_FINAL','QC_PHOTO_REQUIRED','QC_REASON_REQUIRED','RISK_EVIDENCE_REQUIRED','SERVICE_INACTIVE','TOKEN_EXPIRED','TOKEN_INVALID','USER_INACTIVE','ARCHIVED','CUSTOMER_HAS_ORDERS','ORDER_HAS_PAYMENTS','NOTIFICATION_IN_PROGRESS','USER_HAS_HISTORY','DELETE_DEPENDENCY','CURRENT_ACCOUNT','LAST_OWNER','IDEMPOTENCY_CONFLICT','REVISION_CONFLICT','RATE_PLAN_INACTIVE','PRICING_SELECTION_CONFLICT',
 ]);
 // Templates are explicit: even short alphabetic tracking tokens must never pass as routes.
@@ -17,7 +17,7 @@ const routes = new Set(['/unmatched', ...[
   'pricing/plans/:id','customers','customers/:id','services','services/:id','users','users/:id','settings','orders','orders/:id','orders/:id/items',
   'orders/:id/tracking-token','orders/:id/tracking-token/rotate','orders/:id/tracking-token/revoke','orders/:id/payments','orders/:id/refunds',
   'items/:id','items/:id/assignment','items/:id/transition','items/:id/inspection','items/:id/consent/reissue','items/:id/consent/return','items/:id/photos',
-  'photos/:id','dashboard','notifications','notifications/:id/retry','audit','track/:token','track/:token/consent','track/:token/photos/:id',
+  'whatsapp-broadcasts','whatsapp-broadcasts/preview','whatsapp-broadcasts/confirm','whatsapp-broadcasts/:id','photos/:id','dashboard','notifications','notifications/:id/retry','audit','track/:token','track/:token/consent','track/:token/photos/:id',
 ].map(path => `/api/v1/${path}`)]);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const counters = new Set(['durationMs','generation','attemptNo','count','attemptCount']);
@@ -36,7 +36,8 @@ export function safeMetadata(input: Record<string, unknown> = {}): Prisma.InputJ
       (key === 'outcome' && ['SUCCESS','FAILED'].includes(value)) ||
       (key === 'stage' && ['factory','initialize','send'].includes(value)) ||
       (key === 'errorType' && ['Error','TypeError','ReferenceError','SyntaxError','TimeoutError','ProtocolError','TargetCloseError','String','Unknown'].includes(value)) ||
-      (key === 'diagnosticCode' && ['ENOENT','EACCES','EPERM','EBUSY','EEXIST','ECONNREFUSED','ECONNRESET','ETIMEDOUT','INVALID_PARAMETERS','CONTEXT_DESTROYED','EVALUATION_FAILED','UNKNOWN'].includes(value)) ||
+      (key === 'diagnosticCode' && ['ENOENT','EACCES','EPERM','EBUSY','EEXIST','ECONNREFUSED','ECONNRESET','ETIMEDOUT','INVALID_PARAMETERS','CONTEXT_DESTROYED','EVALUATION_FAILED','UNKNOWN','MEDIA_UPLOAD_FAILED','MEDIA_PREPARATION_FAILED','SEND_TIMEOUT','QR_PREPARATION_FAILED','BROWSER_CLOSED'].includes(value)) ||
+      (key === 'sendPhase' && ['getChat','sendSeen','processMediaData','uploadMedia','submitMessage','getMessageModel','sendMessage','unknown'].includes(value)) ||
       (key === 'operation' && ['setUserAgent','inject','navigation','launch','sendMessage','unknown'].includes(value)) ||
       ((key === 'state' || key === 'fromState') && states.has(value)) ||
       ((key === 'reason' || key === 'errorCode') && codes.has(value)) ||

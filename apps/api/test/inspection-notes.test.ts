@@ -92,7 +92,7 @@ test('inspection HTTP: optional private risk photo; required BEFORE/findings/ris
     assert.equal(item.status, 'PACKING'); assert.equal(histories.length, historyCount);
     item.status = 'DRYING';
     response = await call({ toStatus: 'READY_FOR_PICKUP', reason: '' }, 'transition');
-    assert.equal(response.status, 409); assert.equal((await response.json()).error.code, 'INVALID_TRANSITION');
+    assert.equal(response.status, 409); assert.equal((await response.json()).error.code, 'QC_PHOTO_REQUIRED');
     assert.equal(item.status, 'DRYING'); assert.equal(histories.length, historyCount);
     console.info('PACKING_HTTP_CONTRACT', { accepted: 200, duplicate: 409, invalidEnum: 400, invalidField: 'toStatus', directReady: 409, dashboardInProgress: 1 });
     const { issueConsent, decide } = await import('../src/services/orders.js');

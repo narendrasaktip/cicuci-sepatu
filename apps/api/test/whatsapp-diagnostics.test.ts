@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { test } from 'node:test';
-import { initializationCause, initializationDiagnostic, controlFailure } from '../src/integrations/whatsapp/diagnostics.js';
+import { initializationCause, initializationDiagnostic, controlFailure, sendDiagnostic } from '../src/integrations/whatsapp/diagnostics.js';
 import { lifecycleAudit } from '../src/integrations/whatsapp/lifecycle.js';
 import { WhatsAppWeb } from '../src/integrations/whatsapp/web.js';
 
@@ -32,6 +32,25 @@ test('unknown errors retain safe type/stage; protocol operations identified with
   assert.equal(initializationCause(protocol), 'BROWSER_PROTOCOL_FAILED');
   assert.deepEqual(initializationDiagnostic(protocol, 'initialize'), { stage: 'initialize', errorType: 'Error', diagnosticCode: 'INVALID_PARAMETERS', operation: 'setUserAgent' });
   assert.equal(initializationCause('ready timeout'), 'INITIALIZATION_TIMEOUT');
+});
+
+test('send diagnostics distinguish media failures without exposing exception details', () => {
+  for (const [message, expected] of [
+    ['Evaluation failed: upload failed: media entry was not created', 'MEDIA_UPLOAD_FAILED'],
+    ['Evaluation failed: media-fault: sendToChat filehash undefined', 'MEDIA_PREPARATION_FAILED'],
+    ['QR_PREPARATION_FAILED', 'QR_PREPARATION_FAILED'],
+    ['SEND_TIMEOUT', 'SEND_TIMEOUT'],
+    ['Protocol error: Target closed', 'BROWSER_CLOSED'],
+    ['Execution context was destroyed', 'CONTEXT_DESTROYED'],
+    ['Evaluation failed: unrecognized failure', 'EVALUATION_FAILED'],
+    ['unrecognized failure', 'UNKNOWN'],
+  ]) {
+    const diagnostic = sendDiagnostic(new Error(`${message} private-recipient private-token /private/path`));
+    assert.equal(diagnostic.diagnosticCode, expected);
+    assert.equal(diagnostic.operation, 'sendMessage');
+    assert.doesNotMatch(JSON.stringify(diagnostic), /private|recipient|token/);
+  }
+  assert.equal(sendDiagnostic(Object.assign(new Error('private'), { name: 'TimeoutError' })).diagnosticCode, 'SEND_TIMEOUT');
 });
 
 test('fake lifecycle audits transitions once, QR refreshes never persisted, initialization failure truthful', async () => {

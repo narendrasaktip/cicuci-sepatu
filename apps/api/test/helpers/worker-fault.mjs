@@ -38,6 +38,7 @@ const db = {
     updateMany: async input => { trace(input.where ? 'DISARM_COMPARE' : 'DISARM'); if (scenario === 'startup-db') throw new Error('private DB details'); if (scenario === 'startup-hang') return never(); return { count: 1 }; },
     upsert: async () => { trace('ACTIVATE'); return {}; },
   },
+  $transaction: async run => run(db),
   notificationAttempt: { updateMany: async () => ({ count: 0 }) },
   notificationEvent: { updateMany: async () => ({ count: 0 }), findMany: async () => [], findUnique: async () => ({ status: 'SENT' }) },
   user: { findUnique: async () => ({ id: 'owner', role: scenario === 'non-owner' ? 'ADMIN' : 'OWNER', isActive: true }) },
@@ -74,6 +75,7 @@ class Worker extends EventEmitter {
 }
 class WhatsAppWeb {
   constructor(_factory, changed) { this.changed = changed; this.status = { state: 'stopped' }; browser = this; }
+  async startManually() { return this.start(); }
   async start() { trace('BROWSER_START'); if (scenario === 'blocked-control') return never(); this.status = { state: 'ready' }; this.changed(this.status); }
   async stop() { trace('BROWSER_STOP'); this.status = { state: 'stopped' }; if (scenario === 'blocked-browser') return never(); }
   async send() { trace('BROWSER_SEND'); if (scenario === 'blocked-send') return never(); return { actualOutbound: true }; }
@@ -98,7 +100,7 @@ registerHooks({ resolve(specifier, context, next) {
   if (specifier === './lib/config.js') return module('export const config = { REDIS_URL: "redis://fake.invalid" };');
   if (specifier === './lib/audit.js') return expose(['recordActivity']);
   if (specifier === './lib/whatsapp-control.js') return module('export const connection = {}; export const lockKey = "lock"; export const statusKey = "status"; export async function sign() { return "s".repeat(64); } export async function verify() { return true; } export async function closeControlConnections() { console.log("SHARED_CLOSED"); }');
-  if (specifier === './integrations/whatsapp/web.js') return module('export const WhatsAppWeb = globalThis.__workerFault.WhatsAppWeb; export async function createBrowserClient() { throw new Error("UNEXPECTED_BROWSER"); } export async function clearBrowserSession() { throw new Error("UNEXPECTED_LOGOUT"); }');
+  if (specifier === './integrations/whatsapp/web.js') return module('export const WhatsAppWeb = globalThis.__workerFault.WhatsAppWeb; export async function createBrowserClient() { throw new Error("UNEXPECTED_BROWSER"); } export async function clearBrowserSession() { throw new Error("UNEXPECTED_LOGOUT"); } export async function hasBrowserSession() { return false; }');
   if (specifier === './services/notifications.js') return expose(['deliverNotification']);
   if (specifier === './integrations/whatsapp/lifecycle.js') return module('export const lifecycleAudit = () => () => {};');
   if (specifier === './integrations/whatsapp/diagnostics.js') return module('export const controlFailure = () => "CONTROL_FAILED";');

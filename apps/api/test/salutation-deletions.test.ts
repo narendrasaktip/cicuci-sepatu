@@ -28,14 +28,14 @@ test('isolated HTTP/service: paid/refunded deletion, existing-order revenue/reta
   const receipts: Row[] = [];
   let queue = Promise.resolve();
   const fake: Row = {
-    customer: { ...model([customer]), create: async ({ data }: Row) => ({ id: 'new', salutation: 'Kak', ...data }) }, user: model(users), order: model(orderRows), ratePlan: model([plan]),
+    customer: { ...model([customer]), findFirst: async () => null, create: async ({ data }: Row) => ({ id: 'new', salutation: 'Kak', ...data }) }, user: model(users), order: model(orderRows), ratePlan: model([plan]),
     payment: { ...model(ledgerRows), findMany: async ({ where }: Row) => { ledgerReads++; assert.deepEqual(where.order, { isNot: null }); return ledgerRows.filter(p => orderRows.some(o => o.id === p.orderId) && (!where.receivedAt.gte || p.receivedAt >= where.receivedAt.gte) && (!where.receivedAt.lte || p.receivedAt <= where.receivedAt.lte)); }, create: async ({ data }: Row) => { ledgerRows.push({ id: `payment-${ledgerRows.length}`, createdAt: new Date(), ...data }); order.payments.push(ledgerRows.at(-1)); return ledgerRows.at(-1); } },
     orderItem: { count: async () => 0, deleteMany: async () => ({ count: 1 }), findUnique: async () => ({ id: 'item', orderId: order.id, order, assignedUserId: 'staff', status: 'QUEUED', consents: [] }) },
     session: { findUnique: async () => ({ user: signedIn, csrfToken: 'csrf', expiresAt: new Date(Date.now() + 60000) }), deleteMany: async () => { deletedSessions++; return {}; } },
     idempotency: { ...model(receipts), create: async ({ data }: Row) => { receipts.push(data); return data; } },
     auditLog: { count: async () => 0, create: async ({ data }: Row) => { if (failAudit && data.action === 'ORDER_DELETED') throw Error('audit unavailable'); audits.push(data); return data; } },
     storeSettings: { findUnique: async () => ({ waActivation: 'test-only', waTemplates: [] }) },
-    notificationEvent: { count: async ({ where }: Row) => event && event.orderId === where.orderId && where.status.in.includes(event.status) ? 1 : 0, findUnique: async () => event, findUniqueOrThrow: async () => ({ ...event, attempts: [], order }), upsert: async ({ create }: Row) => event ??= { id: 'event', generation: 0, ...create }, update: async ({ data }: Row) => { Object.assign(event!, data); return event; } },
+    notificationEvent: { count: async ({ where }: Row) => event && event.orderId === where.orderId && where.status.in.includes(event.status) ? 1 : 0, findMany: async () => event ? [{ ...event, attempts: [] }] : [], findUnique: async () => event, findUniqueOrThrow: async () => ({ ...event, attempts: [], order }), upsert: async ({ create }: Row) => event ??= { id: 'event', generation: 0, ...create }, update: async ({ data }: Row) => { Object.assign(event!, data); return event; } },
     notificationAttempt: { count: async () => Number(processingAttempt), create: async () => { attempts++; return {}; } },
     $queryRaw: async (sql: TemplateStringsArray) => { const text = sql.join('?'); locks.push(text); return text.includes('FROM `Order`') ? (await fake.order.findUnique({ where: { id: order.id } }) ? [{ id: order.id, archivedAt: order.archivedAt }] : []) : [{ id: 'locked' }]; },
     $transaction: (run: (tx: Row) => unknown) => { const result = queue.then(async () => { const snapshots = tables.map(rows => [...rows]); const beforeLedger = structuredClone(ledgerRows); const beforeAudits = structuredClone(audits); const beforeEvent = structuredClone(event); const sessions = deletedSessions; try { return await run(fake); } catch (error) { tables.forEach((rows, i) => rows.splice(0, rows.length, ...snapshots[i]!)); ledgerRows.splice(0, ledgerRows.length, ...beforeLedger); audits.splice(0, audits.length, ...beforeAudits); event = beforeEvent; deletedSessions = sessions; throw error; } }); queue = result.then(() => undefined, () => undefined); return result; },
@@ -44,7 +44,7 @@ test('isolated HTTP/service: paid/refunded deletion, existing-order revenue/reta
   const itemRows: Row[] = [{ id: 'item', orderId: 'order' }]; fake.orderItem.deleteMany = model(itemRows).deleteMany;
   Reflect.set(globalThis, Symbol.for('cicuci.deletion.fake'), fake);
   const dbUrl = 'data:text/javascript,' + encodeURIComponent('export const db = globalThis[Symbol.for("cicuci.deletion.fake")];');
-  const controlUrl = 'data:text/javascript,' + encodeURIComponent('export async function notificationBlocker(){return undefined;}');
+  const controlUrl = 'data:text/javascript,' + encodeURIComponent('export function workerSnapshot(){throw new Error("Forbidden WhatsApp access");} export async function notificationBlocker(){return undefined;}');
   const hooks = registerHooks({ resolve(s, ctx, next) {
     if (/(?:^|\/)db\.js$/.test(s)) return { url: dbUrl, shortCircuit: true };
     if (s.endsWith('/lib/whatsapp-control.js')) return { url: controlUrl, shortCircuit: true };
@@ -61,7 +61,7 @@ test('isolated HTTP/service: paid/refunded deletion, existing-order revenue/reta
     const { seal, unseal, defaults, renderTemplate, previewValues } = await import('../src/services/whatsapp-templates.js');
     const { hashToken } = await import('../src/lib/security.js');
     const tx = fake as never; const actor = { id: 'owner', role: 'OWNER' } as const;
-    for (const salutation of ['Kak', 'Pak', 'Bu']) {
+    for (const salutation of ['Kak', 'Pak', 'Bu', 'Om', 'Tante']) {
       const result = await call('/customers', 'POST', { name: 'Baru', whatsapp: '081234567890', salutation, notificationConsent: false });
       assert.equal(result.status, 201); assert.equal((await result.json()).salutation, salutation);
       assert.equal((await call('/customers/customer', 'PATCH', { salutation })).status, 200);
@@ -70,7 +70,7 @@ test('isolated HTTP/service: paid/refunded deletion, existing-order revenue/reta
     assert.equal((await (await call('/customers', 'POST', { name: 'Baru', whatsapp: '081234567890', notificationConsent: false })).json()).salutation, 'Kak');
     assert.equal((await call('/customers/customer', 'PATCH', { salutation: 'Dr' })).status, 400);
     const raw = 'cd'.repeat(32); order.trackingHash = hashToken(raw); order.trackingSecret = seal(raw);
-    for (const salutation of ['Kak', 'Pak', 'Bu']) {
+    for (const salutation of ['Kak', 'Pak', 'Bu', 'Om', 'Tante']) {
       customer.salutation = salutation; event = undefined; await notify(tx, 'order', 'ORDER_RECEIVED', 'receipt');
       assert.match((unseal(event!.encryptedMessage) as Row).message, new RegExp(`Halo ${salutation} Dina`));
     }

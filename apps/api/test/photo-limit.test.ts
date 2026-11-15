@@ -49,6 +49,7 @@ test('10 MiB image boundaries: real service, schema, bounded parsers and client;
     const schema = new Function('z', `return ${route.split('mutation(')[1]!.split(',(tx,')[0]}`)(z) as z.ZodType;
     const payload = { kind: 'BEFORE', customerVisible: true, mime: 'image/png', base64: exact.toString('base64') };
     assert.ok(schema.safeParse(payload).success);
+    assert.ok(schema.safeParse({ ...payload, kind: 'FINDINGS' }).success);
     assert.ok(schema.safeParse({ ...payload, base64: over.toString('base64') }).success); // decoded check is essential
     assert.equal(schema.safeParse({ ...payload, base64: payload.base64 + 'AAAA' }).success, false);
     assert.equal(schema.safeParse({ ...payload, mime: 'image/svg+xml' }).success, false);

@@ -8,13 +8,13 @@ const dialog = ref<HTMLDialogElement>();
 const findings = ref(''); const customerNote = ref('');
 const outcome = ref('APPROVED'); const notes = ref(''); const risk = ref(''); const price = ref(props.item.quotedPriceIdr);
 const dry = ref(false); const finishing = ref(false); const qc = ref(false); const busy = ref(false); const error = ref('');
-const files = ref<Record<string, File | undefined>>({});
-const uploads = new Map<File, { key: ReturnType<typeof crypto.randomUUID>; saved: boolean }>();
+const files = ref<Record<string, File[]>>({});
+const uploads = new Map<File, { key: ReturnType<typeof crypto.randomUUID>; saved: boolean; kind: string }>();
 let finalRequest: { signature: string; key: ReturnType<typeof crypto.randomUUID> } | undefined;
 const inspection = computed(() => props.mode === 'inspection');
 const kinds = computed(() => inspection.value ? ['BEFORE', ...(outcome.value === 'NEEDS_CONSENT' ? ['INSPECTION'] : [])] : ['AFTER']);
 function hasPhoto(kind: string) { return props.item.photos.some(p => p.kind === kind && (kind !== 'AFTER' || p.customerVisible)); }
-function select(kind: string, event: Event) { files.value[kind] = (event.target as HTMLInputElement).files?.[0]; }
+function select(kind: string, event: Event) { files.value[kind] = Array.from((event.target as HTMLInputElement).files || []); }
 const activationWarning = ref('');
 async function checkCapability() {
   const unsupported = 'Inspeksi terstruktur belum aktif. Deployment diperlukan: minta owner mengotorisasi migrasi dan aktivasi API baru. Isian tetap di form; belum ada unggahan atau pemeriksaan yang dikirim.';
@@ -33,11 +33,15 @@ async function save() {
     if (inspection.value && outcome.value === 'NEEDS_CONSENT' && [findings.value, risk.value].some(v => v.trim().length < 3 || !/[\p{L}\p{N}]/u.test(v))) throw new Error('Isi Temuan dan Risiko, minimal 3 karakter bermakna.');
     if (inspection.value && !await checkCapability()) return;
     if (!inspection.value && !(dry.value && finishing.value && qc.value)) throw new Error('Konfirmasi kering, finishing selesai, dan QC lulus.');
-    for (const kind of kinds.value) if (kind !== 'INSPECTION' && !hasPhoto(kind) && !files.value[kind]) throw new Error('Lengkapi foto wajib.');
-    for (const kind of kinds.value) {
-      const file = files.value[kind]; if (!file) continue;
+    for (const kind of kinds.value) if (kind !== 'INSPECTION' && !hasPhoto(kind) && !files.value[kind]?.length) throw new Error('Lengkapi foto wajib.');
+    for (const kind of [...kinds.value, ...(inspection.value ? ['FINDINGS'] : [])]) {
+      const selected = files.value[kind] || [];
+      const savedHere = [...uploads.values()].filter(upload => upload.saved && upload.kind === kind).length;
+      if (props.item.photos.filter(photo => photo.kind === kind).length + savedHere + selected.filter(file => !uploads.get(file)?.saved).length > 10) throw new Error('Maksimum 10 foto per jenis.');
+    }
+    for (const kind of [...kinds.value, ...(inspection.value ? ['FINDINGS'] : [])]) for (const file of files.value[kind] || []) {
       let upload = uploads.get(file);
-      if (!upload) { upload = { key: crypto.randomUUID(), saved: false }; uploads.set(file, upload); }
+      if (!upload) { upload = { key: crypto.randomUUID(), saved: false, kind }; uploads.set(file, upload); }
       if (!upload.saved) {
         await api(`/items/${props.item.id}/photos`, 'POST', { ...await photoInput(file), kind, customerVisible: kind !== 'INSPECTION' }, false, upload.key);
         upload.saved = true;
@@ -130,7 +134,7 @@ async function save() {
           :key="kind"
           class="field"
         >
-          <label :for="`workflow-${kind}`">{{ kind === 'BEFORE' ? 'Foto sebelum pengerjaan' : kind === 'INSPECTION' ? 'Foto risiko · privat (opsional)' : 'Foto sesudah pengerjaan' }} · PNG/JPEG maksimum 10 MiB</label>
+          <label :for="`workflow-${kind}`">{{ kind === 'BEFORE' ? 'Foto sebelum pengerjaan' : kind === 'INSPECTION' ? 'Foto risiko · privat (opsional)' : 'Foto sesudah pengerjaan' }} · maksimal 10 foto per jenis, PNG/JPEG 10 MiB per foto</label>
           <p
             v-if="hasPhoto(kind)"
             class="muted"
@@ -141,8 +145,22 @@ async function save() {
             :id="`workflow-${kind}`"
             type="file"
             accept="image/png,image/jpeg"
-            :required="kind !== 'INSPECTION' && !hasPhoto(kind) && !files[kind]"
+            multiple
+            :required="kind !== 'INSPECTION' && !hasPhoto(kind) && !files[kind]?.length"
             @change="select(kind, $event)"
+          >
+        </div>
+        <div
+          v-if="inspection"
+          class="field"
+        >
+          <label for="workflow-findings-photos">Foto temuan untuk Customer (opsional) · maksimal 10 foto, PNG/JPEG 10 MiB per foto</label>
+          <input
+            id="workflow-findings-photos"
+            type="file"
+            accept="image/png,image/jpeg"
+            multiple
+            @change="select('FINDINGS', $event)"
           >
         </div>
         <label for="workflow-notes">Catatan {{ inspection ? 'pemeriksaan internal (opsional)' : 'penyelesaian' }}</label><textarea
