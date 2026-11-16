@@ -17,6 +17,12 @@ for (const width of [320, 390, 1440]) {
     await page.goto(origin);
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Sepatu Kotor?');
     await expect(page.getByRole('heading', { name: 'Cara Pesan' })).toBeVisible();
+    const reasons = page.locator('.why > div');
+    await expect(reasons).toHaveText(['♢ Kondisi Sepatu Diperiksa', '◷ Proses Terpantau Setiap Saat', '◇ Konfirmasi Sebelum Pengerjaan', '☆ Perawatan Sesuai Kebutuhan']);
+    const layout = await reasons.evaluateAll(items => items.map(item => ({ font: getComputedStyle(item).fontSize, icon: item.querySelector('b').getBoundingClientRect().width, right: item.getBoundingClientRect().right })));
+    expect(new Set(layout.map(item => item.font)).size).toBe(1);
+    expect(new Set(layout.map(item => item.icon)).size).toBe(1);
+    expect(layout.every(item => item.right <= width)).toBe(true);
     await expect(page.getByRole('link', { name: 'Pesan Sekarang' }).first()).toHaveAttribute('href', '/pesan');
     await expect(page.locator('a[href*="phone=6285179963343"]').first()).toBeVisible();
     await expect(page.locator('header a[href^="/admin"], footer a[href^="/admin"]')).toHaveCount(0);

@@ -207,7 +207,7 @@ function submit() {
               </li>
             </ul>
             <p class="hint">
-              Harga akhir dikonfirmasi setelah pemeriksaan. Biaya penyerahan di luar ketentuan gratis belum termasuk.
+              Estimasi umum pengerjaan 3–5 hari kalender; perkiraan selesai dikonfirmasi admin. Harga akhir dikonfirmasi setelah pemeriksaan. Biaya penyerahan di luar ketentuan gratis belum termasuk.
             </p>
           </section>
         </fieldset>

@@ -196,7 +196,7 @@ onMounted(async () => {
           <h2 class="section-title">
             Kenapa Cicuci Sepatu?
           </h2><div class="why">
-            <div><b>♢</b> Kondisi sepatu diperiksa</div><div><b>◷</b> Proses terpantau</div><div><b>◇</b> Konfirmasi Sebelum Pengerjaan</div><div><b>☆</b> Perawatan sesuai kebutuhan</div>
+            <div><b aria-hidden="true">♢</b> Kondisi Sepatu Diperiksa</div><div><b aria-hidden="true">◷</b> Proses Terpantau Setiap Saat</div><div><b aria-hidden="true">◇</b> Konfirmasi Sebelum Pengerjaan</div><div><b aria-hidden="true">☆</b> Perawatan Sesuai Kebutuhan</div>
           </div><div
             id="tracking"
             class="notice"
@@ -213,7 +213,7 @@ onMounted(async () => {
           <h2 class="section-title">
             Pertanyaan Umum (FAQ)
           </h2><div class="faq">
-            <details><summary>Berapa lama proses pencucian?</summary><p>Waktu pengerjaan bergantung pada jenis layanan dan kondisi sepatu. Estimasi tersedia pada pesanan. Harga akhir ditentukan setelah pemeriksaan; pencucian berisiko memerlukan persetujuanmu.</p></details><details><summary>Apakah semua jenis sepatu bisa dicuci?</summary><p>Tidak selalu. Kondisi dan material sepatu diperiksa terlebih dahulu. Jika tidak memungkinkan untuk dicuci, admin akan menginformasikannya.</p></details><details><summary>Bagaimana jika hasil cuci tidak maksimal?</summary><p>Kami akan menginformasikan potensi keterbatasan hasil berdasarkan kondisi sepatu sebelum proses dilanjutkan.</p></details>
+            <details><summary>Berapa lama proses pencucian?</summary><p>Estimasi umum 3–5 hari kalender, bergantung pada jenis layanan dan kondisi sepatu. Perkiraan selesai pada pesanan dikonfirmasi admin. Harga akhir ditentukan setelah pemeriksaan; pencucian berisiko memerlukan persetujuanmu.</p></details><details><summary>Apakah semua jenis sepatu bisa dicuci?</summary><p>Tidak selalu. Kondisi dan material sepatu diperiksa terlebih dahulu. Jika tidak memungkinkan untuk dicuci, admin akan menginformasikannya.</p></details><details><summary>Bagaimana jika hasil cuci tidak maksimal?</summary><p>Kami akan menginformasikan potensi keterbatasan hasil berdasarkan kondisi sepatu sebelum proses dilanjutkan.</p></details>
           </div>
           <div class="faq">
             <details><summary>Apakah ada layanan jemput sepatu?</summary><p>Gratis penjemputan sekitar Lippo Karawaci. Cakupan alamat dikonfirmasi admin. Untuk luar area, biaya dikonfirmasi sebelum penjemputan. Pilih metode Dijemput saat mengisi form pemesanan.</p></details>
@@ -381,6 +381,7 @@ onMounted(async () => {
 .contact-actions{display:flex;justify-content:center;flex-wrap:wrap;gap:12px;margin-top:20px}.site .notice .contact-actions a{text-decoration:none}.site .hero .pickup-promise{max-width:440px;font-size:14px;font-weight:700;line-height:1.6;margin:18px 0 0}.pickup-promise span{font-weight:400}.faq+.faq{margin-top:12px}
 @media(max-width:700px){.trust{gap:10px;padding:16px 12px}.trust div{font-size:13px;flex-direction:column;text-align:center;gap:6px}.trust div+div{padding-left:0}.services{grid-template-columns:1fr;gap:12px}.service{padding:20px}.service h3{font-size:17px}.service p{font-size:14px;line-height:1.6}.shoe{font-size:40px}.steps{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.step{font-size:14px;padding:18px 10px;line-height:1.5}.why div{font-size:14px}.hero-actions .btn{font-size:14px}.contact-actions .btn{flex:1 1 180px}.footer{font-size:13px}}
 .site .section-title{font-size:clamp(24px,3vw,32px);font-weight:750}.site .btn,.site .navcta,.site .navlinks,.site .mobile-menu{font-weight:700}.site .btn,.site .hero-actions .btn{font-size:15px}.site .trust div,.site .step,.site .why div{font-weight:600}.site .eyebrow{font-weight:700}.site .faq summary{font-size:16px;font-weight:600}.site .bottom a{font-weight:600}.site .bottom small{font-weight:400}.site .footer{font-weight:500}
+.why div{min-width:0;align-items:flex-start;line-height:1.45}.why b{flex:0 0 28px;text-align:center;font-size:24px;line-height:1}
 @media(max-width:700px){.site .faq summary{font-size:15px}.site .notice p{font-size:14px}.site .bottom a{font-size:13px}}
 @media(max-width:700px){.site .hamburger{display:grid;place-items:center;padding:0;line-height:1;flex-shrink:0}.hamburger svg{display:block}}
 .site .hamburger{background:#dcecff;color:#102f5c;-webkit-tap-highlight-color:transparent}.site .hamburger:hover,.site .hamburger:active,.site .hamburger[aria-expanded="true"]{background:#c8e3fa;color:#102f5c}
