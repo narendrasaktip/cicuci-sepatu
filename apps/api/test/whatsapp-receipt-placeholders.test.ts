@@ -28,7 +28,7 @@ test('receipt falls back honestly for legacy and mismatched snapshots', () => {
   assert.doesNotMatch(mismatch.rincian_harga, /\/paket|\/pasang/);
   assert.match(receipt({ ...pricing, stage: 'FINAL' }).estimasi_total, /estimasi, belum final/);
   assert.match(receipt({ ...pricing, stage: 'FINAL' }, [{ ...item, outcome: 'APPROVED', status: 'QUEUED' }]).estimasi_total, /total final tersimpan/);
-  assert.equal(receiptValues({ pricing, estimatedCompletionAt: new Date('2026-11-13T18:00:00Z'), items: [item] }).estimasi_selesai, '14 November 2026 WIB');
+  assert.equal(receiptValues({ pricing, estimatedCompletionAt: new Date('2026-11-13T18:00:00Z'), items: [item] }).estimasi_selesai, 'Sabtu, 14 November 2026');
 });
 
 test('receipt-only placeholder validates and renders without changing saved templates', () => {

@@ -43,7 +43,7 @@ export async function reprice(tx: Tx, orderId: string, actor: string | null = nu
     ? { ...previous, cancellation: { originalTotalIdr: previous.totalIdr, originalPairs: previous.pairs, originalAllocations: { ...previous.allocations } } }
     : previous;
   let pricing = calculatePricing(basis, order.items);
-  const frozen = order.items.filter(i => ['WASHING', 'DRYING', 'PACKING', 'FINISHING', 'QC', 'REWORK', 'READY_FOR_PICKUP', 'HANDED_OVER'].includes(i.status) && !['REJECTED', 'DECLINED'].includes(i.outcome ?? ''));
+  const frozen = previous.stage === 'ESTIMATE' ? [] : order.items.filter(i => ['WASHING', 'DRYING', 'PACKING', 'FINISHING', 'QC', 'REWORK', 'READY_FOR_PICKUP', 'HANDED_OVER'].includes(i.status) && !['REJECTED', 'DECLINED'].includes(i.outcome ?? ''));
   if (frozen.length) {
     pricing = {
       ...pricing,
@@ -141,7 +141,7 @@ export async function change(tx: Tx, item: { id: string; status: ItemStatus; ord
   const items = await tx.orderItem.findMany({ where: { orderId: item.orderId }, select: { id: true, status: true } });
   const ready = aggregate(items.map(i => i.status)) === 'READY_FOR_PICKUP';
   const wasReady = aggregate(items.map(i => i.id === item.id ? fromStatus : i.status)) === 'READY_FOR_PICKUP';
-  if (!['AWAITING_CONSENT', 'HANDED_OVER'].includes(toStatus)) await notify(tx, item.orderId, toStatus === 'READY_FOR_PICKUP' ? 'ITEM_READY_FOR_PICKUP' : toStatus, history.id, item.id, toStatus);
+  if (!['AWAITING_CONSENT', 'HANDED_OVER'].includes(toStatus) && !(toStatus === 'READY_FOR_PICKUP' && ready && !wasReady)) await notify(tx, item.orderId, toStatus === 'READY_FOR_PICKUP' ? 'ITEM_READY_FOR_PICKUP' : toStatus, history.id, item.id, toStatus);
   if (['HANDED_OVER', 'RETURNED'].includes(toStatus) && physicallyCompleted(items)) {
     await notify(tx, item.orderId, 'ORDER_HANDED_OVER', `order-handover:${item.orderId}`);
   }
@@ -193,7 +193,8 @@ export async function createOrder(tx: Tx, input: { customerId: string; estimated
   const settings = await tx.storeSettings.findUnique({ where: { id: 1 } }); const token = randomTrackingToken();
   const createdAt = new Date();
   const pricing = plan ? planPricing(plan, serviceId!, input.items.length) : input.rateMode ? initialPricing(input.rateMode, serviceId!, input.items.length) : null;
-  const order = await tx.order.create({ data: { customerId: input.customerId, ...(pricing ? { pricing } : {}), createdAt, number: `CS-${createdAt.toISOString().slice(0,10).replaceAll('-','')}-${randomUUID().slice(0,8).toUpperCase()}`, estimatedCompletionAt: completionEstimate(createdAt, pricing?.version === 2 ? pricing.turnaroundPolicy : 'REGULAR'), pickupInstructions: input.pickupInstructions ?? settings?.pickupInstructions ?? '', ...(input.handover ? { handoverMethod: input.handover.method, handoverLocation: input.handover.method === 'STORE' ? null : input.handover.location, handoverNote: input.handover.note || null } : {}), trackingHash: hashToken(token), trackingSecret: encryptionReady() ? seal(token) : null } });
+  const sequence = await tx.orderNumberSequence.create({ data: {} });
+  const order = await tx.order.create({ data: { customerId: input.customerId, ...(pricing ? { pricing } : {}), createdAt, number: `CS-${String(sequence.id).padStart(6, '0')}-${randomUUID().slice(0,8).toUpperCase()}`, estimatedCompletionAt: completionEstimate(createdAt, pricing?.version === 2 ? pricing.turnaroundPolicy : 'REGULAR'), pickupInstructions: input.pickupInstructions ?? settings?.pickupInstructions ?? '', ...(input.handover ? { handoverMethod: input.handover.method, handoverLocation: input.handover.method === 'STORE' ? null : input.handover.location, handoverNote: input.handover.note || null } : {}), trackingHash: hashToken(token), trackingSecret: encryptionReady() ? seal(token) : null } });
   if (input.saveHandoverPreference && input.handover) await tx.customer.update({ where: { id: input.customerId }, data: handoverPreference(input.handover) });
   for (const item of input.items) await addItem(tx, order.id, { ...item, serviceId: serviceId ?? item.serviceId! }, actor);
   await reprice(tx, order.id, actor.id);

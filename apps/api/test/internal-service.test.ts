@@ -12,7 +12,9 @@ test('smart intake HTTP: canonical identity, omitted service, explicit validatio
   const historical = structuredClone(services.get('historical'));
   let order: Row = {}; let creates = 0; let serviceCreates = 0; let role = 'OWNER';
   const cache = new Map<string, Row>();
+  let sequence = 0;
   const fake = {
+    orderNumberSequence: { create: async () => ({ id: ++sequence }) },
     session: { findUnique: async () => ({ user: { id: 'owner', role, isActive: true }, csrfToken: 'csrf', expiresAt: new Date('2100-01-01') }) },
     user: { findUnique: async () => ({ role, isActive: true }) },
     customer: { count: async () => 1 },

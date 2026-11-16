@@ -58,7 +58,9 @@ test('named catalog + intake HTTP isolated: roles/CSRF/validation, revision lock
   let role = 'OWNER'; let order: Row = {}; let orderCreates = 0; let planCreates = 0; let updates = 0; let locks = 0;
   const plans = new Map<string, Row>(); const cache = new Map<string, Row>(); const services = new Map<string, Row>(); const audits: Row[] = [];
   const duplicate = () => { throw new Prisma.PrismaClientKnownRequestError('duplicate', { code: 'P2002', clientVersion: '6' }); };
+  let sequence = 0;
   const fake = {
+    orderNumberSequence: { create: async () => ({ id: ++sequence }) },
     feedback: { findUnique: async () => null },
     session: { findUnique: async () => ({ user: { id: 'owner', role, isActive: true }, csrfToken: 'csrf', expiresAt: new Date('2100-01-01') }) },
     customer: { count: async () => 1 },

@@ -10,7 +10,9 @@ test('optional shoe details HTTP: create/add normalize; partial edit preserves; 
   const services = new Map<string, Row>([['historical', { id: 'historical', name: 'Unrelated restoration', basePriceIdr: 900000, isActive: true }]]);
   let order: Row = {}; let creates = 0; const role = 'OWNER';
   const cache = new Map<string, Row>();
+  let sequence = 0;
   const fake = {
+    orderNumberSequence: { create: async () => ({ id: ++sequence }) },
     session: { findUnique: async () => ({ user: { id: 'owner', role, isActive: true }, csrfToken: 'csrf', expiresAt: new Date('2100-01-01') }) },
     user: { findUnique: async () => ({ role, isActive: true }) },
     customer: { count: async () => 1 },
@@ -26,6 +28,7 @@ test('optional shoe details HTTP: create/add normalize; partial edit preserves; 
       update: async ({ data }: Row) => Object.assign(order, data),
     },
     orderItem: {
+      count: async ({ where }: Row) => order.items.filter((i: Row) => i.orderId === where.orderId && where.status.in.includes(i.status)).length,
       create: async ({ data }: Row) => { const item = { ...data, id: `item-${order.items.length}`, status: 'RECEIVED', outcome: null, finalPriceIdr: 0 }; order.items.push(item); return item; },
       findMany: async () => order.items,
       findUnique: async ({ where }: Row) => { const item = order.items.find((i: Row) => i.id === where.id); return item ? { ...item, order } : null; },
@@ -83,6 +86,10 @@ test('optional shoe details HTTP: create/add normalize; partial edit preserves; 
       }
       assert.equal((await create({ serviceId: 'historical' })).status, 400);
       assert.equal((await call(`/orders/${order.id}/items`, 'POST', { serviceId: 'historical' })).status, 400);
+      order.items[1].status = 'WASHING';
+      assert.equal((await call(path, 'PATCH', { brand: 'Changed' })).status, 409);
+      assert.equal((await call(path, 'PATCH', { initialNotes: 'Catatan' })).status, 200);
+      assert.equal((await call(`/orders/${order.id}/items`, 'POST', item)).status, 409);
     } finally { await new Promise<void>(r => server.close(() => r())); }
   } finally { hooks.deregister(); Reflect.deleteProperty(globalThis, Symbol.for('cicuci.optional.test')); }
 });

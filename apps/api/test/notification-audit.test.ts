@@ -68,7 +68,7 @@ test('worker notification audit: skips, retries, claims, submitted, ambiguity, d
     tx.balance = 25000;
     let delivered: { message: string; qr?: boolean } | undefined;
     await deliverNotification('fake-event', 0, { ...provider, send: async input => { delivered = input; return {}; } });
-    assert.equal(delivered?.qr, true); assert.match(delivered!.message, /Pelanggan \[SALDO_SAAT_KLAIM\], sisa Rp25\.000 dan Rp25\.000/); assert.match(delivered!.message, /Total pesanan: Rp50\.000.*saat pengiriman.*konfirmasi ke toko/s);
+    assert.equal(delivered?.qr, true); assert.match(delivered!.message, /Pelanggan \[SALDO_SAAT_KLAIM\], sisa Rp25\.000 dan Rp25\.000/); assert.doesNotMatch(delivered!.message, /Saldo berlaku saat pengiriman/);
     reset(); event!.template = 'PICKUP_BILL_UNPAID'; event!.order = { ...(event!.order as object), aggregateStatus: 'READY_FOR_PICKUP' };
     event!.encryptedMessage = seal({ message: 'Sisa [SALDO_SAAT_KLAIM]', trackingHash: 'cd'.repeat(32) });
     await deliverNotification('fake-event', 0, provider); assert.equal(event!.status, 'SKIPPED'); assert.match(JSON.stringify(activities), /MESSAGE_UNAVAILABLE/);

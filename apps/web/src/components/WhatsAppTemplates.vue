@@ -22,7 +22,7 @@ async function run(task: () => Promise<void>) { busy.value = true; error.value =
 onMounted(() => run(async () => {
   const data = await api<{ templates: Template[]; placeholders: Record<string, string>; localOnly: boolean; encryptionReady: boolean }>('/whatsapp-templates');
   // ponytail: hide intake and legacy-only stages; restore when exposed as normal workflow actions.
-  templates.value = data.templates.filter(t => !['RECEIVED', 'INSPECTION', 'PACKING', 'QC', 'HANDED_OVER'].includes(t.event)); placeholders.value = data.placeholders; localOnly.value = data.localOnly; encryptionReady.value = data.encryptionReady; selected.value = templates.value[0]?.event ?? ''; choose();
+  templates.value = data.templates.filter(t => !['RECEIVED', 'INSPECTION', 'PACKING', 'QC', 'READY_FOR_PICKUP', 'HANDED_OVER'].includes(t.event)); placeholders.value = data.placeholders; localOnly.value = data.localOnly; encryptionReady.value = data.encryptionReady; selected.value = templates.value[0]?.event ?? ''; choose();
 }));
 let previewRequest = 0;
 watch(() => [draft.value?.event, draft.value?.name, draft.value?.body], (_value, _old, onCleanup) => {

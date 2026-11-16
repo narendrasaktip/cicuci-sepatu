@@ -81,7 +81,7 @@ export async function deliverNotification(id: string, generation: number, real?:
           if (!order?.trackingHash || payload.trackingHash !== order.trackingHash) skip = 'TRACKING_CHANGED';
           else if (event.template === 'PICKUP_BILL_UNPAID') {
             if (balance === undefined || !payload.balanceMarker || !payload.message.includes(payload.balanceMarker)) skip = 'MESSAGE_UNAVAILABLE';
-            else customerMessage = payload.message.replaceAll(payload.balanceMarker, `Rp${balance.toLocaleString('id-ID')}`) + `\n\nTotal pesanan: Rp${total!.toLocaleString('id-ID')}. Saldo berlaku saat pengiriman; pembayaran dikonfirmasi manual oleh toko, bukan secara real-time. Jika sudah membayar, mohon konfirmasi ke toko.`;
+            else customerMessage = payload.message.replaceAll(payload.balanceMarker, `Rp${balance.toLocaleString('id-ID')}`);
           } else customerMessage = payload.message + (event.template === 'PICKUP_BILL_PAID' && total !== undefined ? `\n\nTotal pesanan: Rp${total.toLocaleString('id-ID')}.` : '');
         }
       } catch { skip = 'MESSAGE_UNAVAILABLE'; }

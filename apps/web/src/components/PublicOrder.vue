@@ -49,7 +49,9 @@ function submit() {
     return;
   }
   const text = [
-    'Halo Cicuci Sepatu, saya ingin pesan cuci sepatu.',
+    'Halo Admin Cicuci Sepatu,',
+    '',
+    'Saya ingin pesan cuci sepatu.',
     '',
     `Nama: ${name.value.trim()}`,
     '',
@@ -62,7 +64,7 @@ function submit() {
     '',
     `Metode penyerahan: ${handoverLabels[method.value]}`,
     ...(method.value === 'STORE' ? [] : [`${locationLabel.value}: ${address.value.trim()}`]),
-    ...(method.value === 'PICKUP' ? [pickupPolicy] : method.value === 'COURIER' ? ['Biaya kurir dikonfirmasi admin, belum termasuk estimasi biaya cuci.'] : []),
+    ...(method.value === 'PICKUP' ? ['', pickupPolicy] : method.value === 'COURIER' ? ['Biaya kurir dikonfirmasi admin, belum termasuk estimasi biaya cuci.'] : []),
     '',
     `Catatan: ${notes.value.trim() || '-'}`,
     '',

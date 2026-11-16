@@ -98,7 +98,7 @@ export function receiptValues(order: { pricing: unknown; estimatedCompletionAt: 
     layanan_tarif: [...services, ...(tariff && !services.some(service => service.toLocaleLowerCase('id-ID') === tariff.toLocaleLowerCase('id-ID')) ? [tariff] : [])].join(' / ') || 'Belum tersedia',
     estimasi_total: pricing ? `${money(pricing.totalIdr)} (${projection?.stage === 'ESTIMATE' || !projection ? 'estimasi, belum final' : 'total final tersimpan'})` : 'Belum tersedia',
     rincian_harga: projection ? breakdown : 'Rincian harga tidak tersedia untuk pesanan lama.',
-    estimasi_selesai: date instanceof Date && Number.isFinite(date.getTime()) ? `${new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', day: 'numeric', month: 'long', year: 'numeric' }).format(date)} WIB` : 'Belum tersedia',
+    estimasi_selesai: date instanceof Date && Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(date) : 'Belum tersedia',
   };
 }
 export function encryptionReady() { return /^[a-f0-9]{64}$/i.test(process.env.WA_MESSAGE_KEY ?? ''); }
@@ -129,4 +129,4 @@ export function feedbackLink(origin: string, token: string) {
   url.pathname = `/feedback/${token}`;
   return url.href;
 }
-export const previewValues: Values = { sapaan: 'Kak', nama_pelanggan: 'Dina (contoh)', total_sepatu: '2', detail_sepatu: '• Sepatu Contoh Biru\n• Sepatu Contoh Putih', nomor_pesanan: 'CONTOH-001', sepatu: 'Sepatu Contoh Biru', url_ulasan: '[tautan ulasan privat — contoh, tidak aktif]', url_tracking: '[tautan privat pelanggan — contoh, tidak aktif]', sisa_pembayaran: 'Rp50.000', layanan_tarif: 'Cuci / Tarif contoh', estimasi_total: 'Rp90.000 (estimasi, belum final)', rincian_harga: '2 × Rp45.000 = Rp90.000', estimasi_selesai: '15 November 2026 WIB', metode_penyerahan: 'Janjian', lokasi_penyerahan: 'Lokasi contoh', catatan_penyerahan: 'Catatan contoh' };
+export const previewValues: Values = { sapaan: 'Kak', nama_pelanggan: 'Dina (contoh)', total_sepatu: '2', detail_sepatu: '• Sepatu Contoh Biru\n• Sepatu Contoh Putih', nomor_pesanan: 'CONTOH-001', sepatu: 'Sepatu Contoh Biru', url_ulasan: '[tautan ulasan privat — contoh, tidak aktif]', url_tracking: '[tautan privat pelanggan — contoh, tidak aktif]', sisa_pembayaran: 'Rp50.000', layanan_tarif: 'Cuci / Tarif contoh', estimasi_total: 'Rp90.000 (estimasi, belum final)', rincian_harga: '2 × Rp45.000 = Rp90.000', estimasi_selesai: 'Minggu, 15 November 2026', metode_penyerahan: 'Janjian', lokasi_penyerahan: 'Lokasi contoh', catatan_penyerahan: 'Catatan contoh' };

@@ -9,7 +9,9 @@ test('automatic estimate: calendar boundaries, server creation clock, legacy val
   process.env.APP_BASE_URL = 'https://example.test';
   let order: Record<string, unknown> = {}; let creates = 0; let histories = 0; let events = 0;
   const cache = new Map<string, object>();
+  let sequence = 0;
   const fake = {
+    orderNumberSequence: { create: async () => ({ id: ++sequence }) },
     session: { findUnique: async () => ({ user: { id: 'owner', role: 'OWNER', isActive: true }, csrfToken: 'csrf', expiresAt: new Date('2100-01-01') }) },
     user: { findUnique: async () => ({ role: 'OWNER', isActive: true }) },
     customer: { count: async () => 1 },
@@ -97,6 +99,7 @@ test('automatic estimate: calendar boundaries, server creation clock, legacy val
       const key = crypto.randomUUID();
       const response = await call('POST', body, key); assert.equal(response.status, 201);
       const saved = await response.json();
+      assert.match(saved.number, /^CS-000001-[0-9A-F]{8}$/);
       assert.equal(saved.createdAt, '2026-11-10T04:59:00.000Z'); assert.equal(saved.estimatedCompletionAt, '2026-11-14T16:59:59.999Z');
       assert.equal(saved.notification.actualOutbound, false);
       t.mock.timers.setTime(new Date('2026-11-10T05:00:00Z').getTime());
@@ -104,7 +107,7 @@ test('automatic estimate: calendar boundaries, server creation clock, legacy val
       assert.equal(creates, 1); assert.equal(histories, 1); assert.equal(events, 1);
       const legacy = { ...body, estimatedCompletionAt: '2000-01-01T00:00:00.000Z' };
       const after = await call('POST', legacy); assert.equal(after.status, 201);
-      assert.equal((await after.json()).estimatedCompletionAt, '2026-11-15T16:59:59.999Z');
+      const second = await after.json(); assert.match(second.number, /^CS-000002-[0-9A-F]{8}$/); assert.equal(second.estimatedCompletionAt, '2026-11-15T16:59:59.999Z');
       assert.equal((await call('POST', { ...body, estimatedCompletionAt: 'invalid' })).status, 400);
       assert.equal((await call('POST', legacy, key)).status, 409);
       const edited = await call('PATCH', { estimatedCompletionAt: '2026-12-01T10:00:00.000Z' }, crypto.randomUUID(), '/order-2');

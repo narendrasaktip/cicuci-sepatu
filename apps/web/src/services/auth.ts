@@ -11,6 +11,7 @@ const messages: Record<string, string> = {
   CONFLICT: 'Data berubah atau tindakan tidak memenuhi aturan. Muat ulang lalu periksa kembali.',
   RATE_LIMITED: 'Terlalu banyak permintaan. Tunggu sebelum mencoba kembali.',
   ARCHIVED: 'Data tidak tersedia untuk perubahan.',
+  WORK_STARTED: 'Pengerjaan sudah dimulai. Sepatu tidak dapat ditambah atau identitasnya diubah pada pesanan ini.',
   CURRENT_ACCOUNT: 'Akun sendiri tidak boleh dihapus, dinonaktifkan, atau diturunkan perannya.',
   CUSTOMER_HAS_ORDERS: 'Pelanggan masih memiliki pesanan. Hapus pesanan yang memenuhi syarat terlebih dahulu; tidak ada penghapusan berantai.',
   CUSTOMER_PHONE_DUPLICATE: 'Nomor WhatsApp sudah terdaftar. Pilih pelanggan yang sudah ada atau gunakan nomor lain.',

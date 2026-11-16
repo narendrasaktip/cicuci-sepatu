@@ -53,8 +53,8 @@ for (const presentation of ['classic', 'new']) for (const role of ['OWNER', 'ADM
     for (const stage of ['ESTIMATE']) {
       order.pricing.stage = stage;
       await page.reload();
-      await expect(start).toBeDisabled();
-      await expect(page.getByText('Pengerjaan menunggu pemeriksaan lengkap dan persetujuan risiko.', { exact: true })).toBeVisible();
+      await expect(start).toBeEnabled();
+      await expect(page.getByText('Sepatu ini dapat mulai dikerjakan. Harga pesanan masih estimasi sampai semua pemeriksaan dan persetujuan risiko selesai.', { exact: true })).toBeVisible();
     }
     order.pricing.stage = 'FINAL';
     await page.reload();

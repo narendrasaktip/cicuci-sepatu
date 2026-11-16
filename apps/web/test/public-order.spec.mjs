@@ -38,7 +38,7 @@ test('order validates input, opens WhatsApp with formatted details', async ({ pa
   expect(text).toContain('Nama: Ayu & Budi\n\nTarif: Reguler');
   expect(text).toContain('Jumlah sepatu: 3 pasang\n\n');
   expect(text).toContain('(belum final)\n\nMetode penyerahan:');
-  for (const line of ['Nama: Ayu & Budi', 'Tarif: Reguler', 'Jumlah sepatu: 3 pasang', 'paket 3 pasang', '130.000 (belum final)', 'Metode penyerahan: Dijemput', 'Alamat Penjemputan: Jl. Mawar #2\nLippo Karawaci', 'Gratis penjemputan sekitar Lippo Karawaci. Cakupan alamat dikonfirmasi admin. Di luar area, biaya dikonfirmasi admin.', 'Catatan: Sneakers + suede?']) expect(text).toContain(line);
+  for (const line of ['Halo Admin Cicuci Sepatu,\n\nSaya ingin pesan cuci sepatu.', 'Nama: Ayu & Budi', 'Tarif: Reguler', 'Jumlah sepatu: 3 pasang', 'paket 3 pasang', '130.000 (belum final)', 'Metode penyerahan: Dijemput', 'Alamat Penjemputan: Jl. Mawar #2\nLippo Karawaci\n\nGratis penjemputan sekitar Lippo Karawaci. Cakupan alamat dikonfirmasi admin. Di luar area, biaya dikonfirmasi admin.', 'Catatan: Sneakers + suede?']) expect(text).toContain(line);
 });
 
 test('handover location changes by method; store needs no address', async ({ page, context }) => {

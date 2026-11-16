@@ -196,7 +196,7 @@ function handover() { action('Sudah diambil', [], `/orders/${props.id}/handover`
             <button
               v-for="next in (order.archivedAt || (!admin && item.assignedUserId !== user.id) ? [] : nextActions(item, !admin))"
               :key="next"
-              :disabled="busy || (next === 'WASHING' && order.pricing?.stage === 'ESTIMATE')"
+              :disabled="busy"
               @click="transition(item, next)"
             >
               {{ actionLabel(next) }}
@@ -213,7 +213,7 @@ function handover() { action('Sudah diambil', [], `/orders/${props.id}/handover`
             v-if="order.pricing?.stage === 'ESTIMATE' && item.status === 'QUEUED'"
             class="muted"
           >
-            Pengerjaan menunggu pemeriksaan lengkap dan persetujuan risiko.
+            Sepatu ini dapat mulai dikerjakan. Harga pesanan masih estimasi sampai semua pemeriksaan dan persetujuan risiko selesai.
           </p>
           <details class="shoe-details">
             <summary>Detail Lainnya</summary>

@@ -3,7 +3,7 @@ import { registerHooks } from 'node:module';
 import { test } from 'node:test';
 import type { Tx } from '../src/repositories/orders.js';
 
-test('ready notifications are per item plus final bill, deduplicated and editable', async () => {
+test('ready notifications omit final item when the final bill is queued', async () => {
   const hooks = registerHooks({ resolve(specifier, context, next) {
     if (specifier.endsWith('/lib/config.js')) return { url: 'data:text/javascript,export const config={APP_BASE_URL:"http://localhost:5173"}', shortCircuit: true };
     if (specifier.endsWith('/lib/whatsapp-control.js')) return { url: 'data:text/javascript,export async function notificationBlocker(){return "NOT_ENABLED"}', shortCircuit: true };
@@ -44,16 +44,19 @@ test('ready notifications are per item plus final bill, deduplicated and editabl
       const tx = fake as unknown as Tx;
       for (let i = 0; i < count; i++) {
         await change(tx, items[i] as never, 'READY_FOR_PICKUP', 'owner', 'QC');
-        assert.equal([...events.values()].filter(e => e.template === 'ITEM_READY_FOR_PICKUP').length, i + 1);
+        assert.equal([...events.values()].filter(e => e.template === 'ITEM_READY_FOR_PICKUP').length, Math.min(i + 1, count - 1));
         assert.equal([...events.values()].filter(e => e.template === 'READY_FOR_PICKUP').length, 0);
         assert.equal([...events.values()].filter(e => e.template === 'PICKUP_BILL_UNPAID').length, i === count - 1 ? 1 : 0);
-        const event = events.get(`history-${i + 1}`)!;
-        assert.equal(event.itemId, `shoe-${i}`); assert.equal(event.expectedStatus, 'READY_FOR_PICKUP');
-        assert.match((unseal(event.encryptedMessage!) as { message: string }).message, new RegExp(`Brand${i} selesai QC`));
-        await notify(tx, order.id, 'ITEM_READY_FOR_PICKUP', event.eventKey, event.itemId, event.expectedStatus);
-        assert.equal(events.get(event.eventKey), event);
+        const event = events.get(`history-${i + 1}`);
+        if (i === count - 1) assert.equal(event, undefined);
+        else {
+          assert.ok(event); assert.equal(event.itemId, `shoe-${i}`); assert.equal(event.expectedStatus, 'READY_FOR_PICKUP');
+          assert.match((unseal(event.encryptedMessage!) as { message: string }).message, new RegExp(`Brand${i} selesai QC`));
+          await notify(tx, order.id, 'ITEM_READY_FOR_PICKUP', event.eventKey, event.itemId, event.expectedStatus);
+          assert.equal(events.get(event.eventKey), event);
+        }
       }
-      assert.equal(events.size, count + 1);
+      assert.equal(events.size, count);
       assert.equal([...events.values()].filter(e => e.template === 'PICKUP_BILL_UNPAID').length, 1);
       const payload = unseal([...events.values()].find(e => e.template === 'PICKUP_BILL_UNPAID')!.encryptedMessage!) as { message: string; balanceMarker: string };
       assert.match(payload.message, /Test \[SALDO_SAAT_KLAIM\]/); assert.ok(payload.message.includes(payload.balanceMarker)); assert.notEqual(payload.balanceMarker, '[SALDO_SAAT_KLAIM]');

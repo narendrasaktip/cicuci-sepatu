@@ -77,7 +77,7 @@ test('new cancellation reprices snapshot rules; historic reads, evidence, paymen
       assert.ok(items.every(i => i.finalPriceIdr === 0)); assert.deepEqual(payments, ledger);
       assert.equal((await getOrder(tx, 'order')).refundDueIdr, saved.totalIdr - 1);
     }
-    // Mixed-stage public decline: frozen zero allocation stays zero, last decision finalizes.
+    // Work started during estimate: final decision recalculates all allocations from saved rules.
     const mixed = [
       { id: 'a', orderId: 'mixed', status: 'PACKING', outcome: 'APPROVED', inspection: { actorUserId: 'inspector' }, consents: [], quotedPriceIdr: 0, finalPriceIdr: 0 },
       { id: 'b', orderId: 'mixed', status: 'QUEUED', outcome: 'APPROVED', inspection: { actorUserId: 'inspector' }, consents: [], quotedPriceIdr: 1, finalPriceIdr: 0 },
@@ -99,8 +99,8 @@ test('new cancellation reprices snapshot rules; historic reads, evidence, paymen
     assert.equal(consent.decision, 'DECLINE'); assert.ok(consent.consumedAt);
     assert.equal(mixed[2]!.status, 'RETURN_PENDING'); assert.equal(mixed[2]!.finalPriceIdr, 0);
     assert.equal(mixedOrder.pricing.stage, 'FINAL'); assert.equal(mixedOrder.pricing.pairs, 2);
-    assert.deepEqual(mixedOrder.pricing.allocations, { a: 0, b: 1, c: 0 });
-    assert.equal(mixedOrder.pricing.totalIdr, 1); assert.equal(mixedOrder.pricing.verifiedBy, 'inspector');
+    assert.deepEqual(mixedOrder.pricing.allocations, { a: 1, b: 1, c: 0 });
+    assert.equal(mixedOrder.pricing.totalIdr, 2); assert.equal(mixedOrder.pricing.verifiedBy, 'inspector');
     await requireVerifiedPricing(mixedTx, 'mixed');
     await assert.rejects(decide(mixedTx, 'tracking-fixture', 'c', 'DECLINE'), { code: 'TOKEN_INVALID' });
     mixedOrder.pricing.pairs = 3;

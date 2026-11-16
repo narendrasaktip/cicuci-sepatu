@@ -567,9 +567,9 @@ function closePhoto() {
 .tracking-brand img { display: block; width: 100%; height: auto; object-fit: contain; }
 .tracking .tracking-header h1 { margin: 0; letter-spacing: normal; }
 .tracking .order-identity { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: 1rem; }
-.tracking .order-identity > div { min-width: 0; flex: 1 1 180px; }
+.tracking .order-identity > div { min-width: 0; flex: 1 1 180px; transform: translateY(12px); }
 .tracking .order-identity .refresh { padding-inline: .6rem; font-size: .8125rem; }
-.tracking .last-refresh { display: block; white-space: nowrap; font-size: .6875rem; }
+.tracking .last-refresh { display: block; transform: translateY(-4px); white-space: nowrap; font-size: .6875rem; }
 .tracking .order-number { margin: 0; font-size: 1.25rem; font-weight: 700; }
 .tracking .panel.order-summary { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; margin: 0 0 1rem; padding: 0; overflow: hidden; }
 .tracking .order-summary > section { min-width: 0; padding: 1rem; }
