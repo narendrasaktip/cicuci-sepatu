@@ -507,12 +507,6 @@ function closePhoto() {
           </section>
         </div>
       </article>
-      <p
-        v-if="!order.feedback && order.feedbackEligible === true"
-        class="panel"
-      >
-        <a :href="`/feedback/${encodeURIComponent(token)}`">Berikan Ulasan</a>
-      </p>
     </template>
     <dialog
       ref="photoDialog"
