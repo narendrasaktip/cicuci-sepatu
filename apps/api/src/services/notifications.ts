@@ -41,10 +41,10 @@ export async function deliverNotification(id: string, generation: number, real?:
         return { retry: false };
       }
     }
-    let balance: number | undefined; let total: number | undefined;
+    let balance: number | undefined;
     if (!skip && order && ['PICKUP_BILL_UNPAID', 'PICKUP_BILL_PAID'].includes(event.template)) {
       const finances = await getOrder(tx, order.id);
-      balance = finances.balanceIdr; total = finances.totalIdr;
+      balance = finances.balanceIdr;
       if ((event.template === 'PICKUP_BILL_UNPAID') !== (balance > 0)) skip = 'STALE_BALANCE';
     }
     const initialPrefix = 'consent-initial:'; const reminderPrefix = 'consent-reminder:';
@@ -82,7 +82,7 @@ export async function deliverNotification(id: string, generation: number, real?:
           else if (event.template === 'PICKUP_BILL_UNPAID') {
             if (balance === undefined || !payload.balanceMarker || !payload.message.includes(payload.balanceMarker)) skip = 'MESSAGE_UNAVAILABLE';
             else customerMessage = payload.message.replaceAll(payload.balanceMarker, `Rp${balance.toLocaleString('id-ID')}`);
-          } else customerMessage = payload.message + (event.template === 'PICKUP_BILL_PAID' && total !== undefined ? `\n\nTotal pesanan: Rp${total.toLocaleString('id-ID')}.` : '');
+          } else customerMessage = payload.message;
         }
       } catch { skip = 'MESSAGE_UNAVAILABLE'; }
     }

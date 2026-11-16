@@ -75,8 +75,9 @@ test('worker notification audit: skips, retries, claims, submitted, ambiguity, d
     reset(); event!.template = 'PICKUP_BILL_UNPAID'; event!.order = { ...(event!.order as object), aggregateStatus: 'READY_FOR_PICKUP' }; tx.balance = 0;
     await deliverNotification('fake-event', 0, provider); assert.equal(event!.status, 'SKIPPED'); assert.match(JSON.stringify(activities), /STALE_BALANCE/);
     reset(); event!.template = 'PICKUP_BILL_PAID'; event!.order = { ...(event!.order as object), aggregateStatus: 'READY_FOR_PICKUP' };
+    event!.encryptedMessage = seal({ message: 'Pembayaran lunas.', trackingHash: 'cd'.repeat(32) });
     await deliverNotification('fake-event', 0, { ...provider, send: async input => { delivered = input; return {}; } });
-    assert.equal(delivered?.qr, undefined); assert.equal(event!.status, 'SENT');
+    assert.equal(delivered?.qr, undefined); assert.equal(delivered?.message, 'Pembayaran lunas.'); assert.equal(event!.status, 'SENT');
     reset(); event!.template = 'PICKUP_BILL_PAID'; event!.order = { ...(event!.order as object), aggregateStatus: 'READY_FOR_PICKUP' }; tx.balance = 1000;
     await deliverNotification('fake-event', 0, provider); assert.equal(event!.status, 'SKIPPED');
     reset(); event!.template = 'PICKUP_BILL_UNPAID'; event!.order = { ...(event!.order as object), aggregateStatus: 'READY_FOR_PICKUP' }; tx.balance = 1000;
