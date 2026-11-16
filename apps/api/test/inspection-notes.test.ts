@@ -12,11 +12,12 @@ test('inspection HTTP: optional private risk photo; required BEFORE/findings/ris
   const consents: { id: string; itemId: string; findings?: string | null; customerNote?: string | null; risk: string; tokenHash: string; expiresAt: Date; consumedAt: Date | null; decision: string | null }[] = [];
   const histories: { reason: string }[] = [];
   const fake = {
+    feedback: { findUnique: async () => null },
     user: { findUnique: async () => ({ id: 'owner', role: 'OWNER', isActive: true }) },
     session: { findUnique: async () => ({ user: { id: 'owner', role: 'OWNER', isActive: true }, csrfToken: 'csrf', expiresAt: new Date(Date.now() + 60000) }) },
     idempotency: { findUnique: async () => null, create: async () => ({}), update: async () => ({}) },
     orderItem: { findUnique: async () => ({ ...item, order }), findMany: async () => [item], update: async ({ data }: { data: object }) => Object.assign(item, data) },
-    order: { findUnique: async () => order, findUniqueOrThrow: async () => order, findMany: async () => [order], update: async () => order },
+    order: { findUnique: async () => order, findUniqueOrThrow: async () => order, findMany: async () => [order], update: async ({ data }: { data: object }) => Object.assign(order, data) },
     payment: { findMany: async () => [] },
     inspection: { create: async ({ data }: { data: { notes: string } }) => { item.inspection = data; } },
     consentDecision: {

@@ -7,7 +7,7 @@ const origin = process.env.TEST_WEB_ORIGIN || 'http://127.0.0.1:5173';
 async function mockApi(page) {
   const state = { authenticated: false, status: 401, gate: null, calls: [], unexpected: [], errors: [] };
   page.on('pageerror', error => state.errors.push(error.message));
-  await page.route('**/api/**', async route => {
+  await page.route('**/api/v1/**', async route => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const call = `${request.method()} ${path}`;
@@ -23,6 +23,8 @@ async function mockApi(page) {
     }
     if (state.authenticated && call === 'GET /api/v1/display-settings') return route.fulfill({ json: { statusLabels: {} } });
     if (state.authenticated && call === 'GET /api/v1/dashboard') return route.fulfill({ json: {} });
+    if (state.authenticated && call === 'GET /api/v1/whatsapp/status') return route.fulfill({ json: { state: 'ready', ready: true, realSendEnabled: false } });
+    if (call === 'GET /api/v1/public/feedback') return route.fulfill({ json: { data: [] } });
     if (state.authenticated && call === 'GET /api/v1/orders') return route.fulfill({ json: { data: [], page: { nextCursor: null } } });
     if (call === 'GET /api/v1/track/login-regression') return route.fulfill({ json: {
       number: 'LOGIN-TRACKING', aggregateStatus: 'WAITING_INSPECTION', items: [],
@@ -111,8 +113,8 @@ test('login preserves validation, autocomplete, keyboard, errors, pending and au
   await expect(page.getByRole('navigation', { name: 'Navigasi utama' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
   await expect(page.locator('.login-page')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Terapkan / muat ulang', exact: true })).toBeEnabled();
-  expect(state.calls).toEqual(['GET /api/v1/auth/me', 'POST /api/v1/auth/login', 'POST /api/v1/auth/login', 'GET /api/v1/auth/me', 'GET /api/v1/display-settings', 'GET /api/v1/dashboard', 'GET /api/v1/orders']);
+  await expect(page.getByRole('button', { name: 'Cari', exact: true })).toBeEnabled();
+  expect(state.calls.filter(call => call !== 'GET /api/v1/whatsapp/status')).toEqual(['GET /api/v1/auth/me', 'POST /api/v1/auth/login', 'POST /api/v1/auth/login', 'GET /api/v1/auth/me', 'GET /api/v1/display-settings', 'GET /api/v1/dashboard', 'GET /api/v1/orders']);
   expect(state.unexpected).toEqual([]);
   expect(state.errors).toEqual([]);
 });
@@ -121,7 +123,7 @@ test('landing/admin/tracking navigation preserves public isolation', async ({ pa
   const state = await mockApi(page);
   await page.goto(`${origin}/`);
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Sepatu Kotor?');
-  expect(state.calls).toEqual([]);
+  expect(state.calls.filter(call => call !== 'GET /api/v1/public/feedback')).toEqual([]);
   await expect(page.getByRole('link', { name: /admin/i })).toHaveCount(0);
   await page.goto(`${origin}/admin`);
   await expect(page).toHaveURL(`${origin}/admin`);
@@ -129,12 +131,12 @@ test('landing/admin/tracking navigation preserves public isolation', async ({ pa
   await page.getByRole('link', { name: 'Cicuci Sepatu', exact: true }).click();
   await expect(page).toHaveURL(`${origin}/`);
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Sepatu Kotor?');
-  expect(state.calls).toEqual(['GET /api/v1/auth/me']);
+  expect(state.calls.filter(call => call !== 'GET /api/v1/public/feedback')).toEqual(['GET /api/v1/auth/me']);
   await page.goto(`${origin}/track/login-regression`);
   await expect(page.getByRole('heading', { name: 'Tracking Pesanan', exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Tracking Pesanan', exact: true })).toBeVisible();
-  expect(state.calls).toEqual(['GET /api/v1/auth/me', 'GET /api/v1/track/login-regression', 'GET /api/v1/track/login-regression']);
+  expect(state.calls.filter(call => call !== 'GET /api/v1/public/feedback')).toEqual(['GET /api/v1/auth/me', 'GET /api/v1/track/login-regression', 'GET /api/v1/track/login-regression']);
   expect(state.unexpected).toEqual([]);
   expect(state.errors).toEqual([]);
 });

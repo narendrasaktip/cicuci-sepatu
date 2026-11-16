@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { registerHooks } from 'node:module';
-import { defaults, eventNames, templateWrite, renderTemplate, previewValues, handoverValues, seal, unseal, trackingLink, deliveryPayload } from '../src/services/whatsapp-templates.js';
+import { defaults, eventNames, templateWrite, renderTemplate, previewValues, handoverValues, seal, unseal, feedbackLink, trackingLink, deliveryPayload } from '../src/services/whatsapp-templates.js';
 import { hashToken } from '../src/lib/security.js';
 
 test('all emitted events: Indonesian defaults, literal substitution, strict placeholders and content', () => {
@@ -10,15 +10,29 @@ test('all emitted events: Indonesian defaults, literal substitution, strict plac
     templateWrite.parse(definition);
     const orderLevel = ['ORDER_RECEIVED', 'PICKUP_BILL_UNPAID', 'PICKUP_BILL_PAID'].includes(definition.event);
     assert.equal(definition.body.includes('{detail_sepatu}'), orderLevel);
-    if (!orderLevel) assert.match(definition.body, /\{sepatu\}/);
+    if (!orderLevel && definition.event !== 'ORDER_HANDED_OVER') assert.match(definition.body, /\{sepatu\}/);
     const rendered = renderTemplate(definition.body, previewValues);
     if (!orderLevel) assert.doesNotMatch(rendered, /Sepatu Contoh Putih/);
-    assert.match(rendered, /Cicuci Sepatu/); assert.match(rendered, /Dina/); assert.match(rendered, /Sepatu Contoh Biru/); assert.doesNotMatch(rendered, /Deep Clean|Basic Clean/);
+    assert.match(rendered, /Cicuci Sepatu/); assert.match(rendered, /Dina/); if (definition.event !== 'ORDER_HANDED_OVER') assert.match(rendered, /Sepatu Contoh Biru/); assert.doesNotMatch(rendered, /Deep Clean|Basic Clean/);
     assert.doesNotMatch(rendered, /\{[a-z_]+\}|ORDER_RECEIVED|CONSENT_REQUEST/);
   }
   const body = defaults[0]!.body;
   for (const invalid of [body + '{nama}', body + '{taotal_sepatu}', body + '{constructor}', body + '{{nama_pelanggan}}', body + '${process.env}', body + '\u0000', body + 'https://evil.test', body + '<script>alert(1)</script>', 'a'.repeat(2001), body.replace('{url_tracking}', '')]) assert.equal(templateWrite.safeParse({ ...defaults[0], body: invalid }).success, false);
   assert.match(renderTemplate(body, { ...previewValues, nama_pelanggan: '{url_tracking} $&' }), /\{url_tracking\} \$&/); // replacements never recursively evaluate customer input
+});
+
+test('feedback URL is dedicated, validated, preserves tracking and legacy handover templates', () => {
+  const token = 'a'.repeat(64);
+  assert.equal(feedbackLink('https://example.test', token), `https://example.test/feedback/${token}`);
+  assert.equal(trackingLink('https://example.test', token), `https://example.test/track/${token}`);
+  assert.throws(() => feedbackLink('http://example.test', token));
+  assert.throws(() => feedbackLink('https://example.test', '../invalid'));
+  const handover = defaults.find(t => t.event === 'ORDER_HANDED_OVER')!;
+  const legacy = { ...handover, body: handover.body.replace('{url_ulasan}', '{url_tracking}') };
+  templateWrite.parse(handover); templateWrite.parse(legacy);
+  assert.match(renderTemplate(handover.body, { ...previewValues, url_ulasan: feedbackLink('https://example.test', token) }), /https:\/\/example.test\/feedback\//);
+  assert.match(renderTemplate(legacy.body, { ...previewValues, url_tracking: trackingLink('https://example.test', token) }), /https:\/\/example.test\/track\//);
+  assert.equal(templateWrite.safeParse({ ...defaults[0], body: defaults[0]!.body.replace('{url_tracking}', '{url_ulasan}') }).success, false);
 });
 
 test('handover placeholders work for every event with safe legacy fallback', () => {

@@ -1,7 +1,12 @@
+import { orderStatusCode, orderStatusLabels, orderStatusTone } from '../../../api/src/services/order-status';
+export { orderStatusCode, orderStatusTone };
 export type TrackingStage = { id: string; anchor: string; name: string; visible: boolean };
 export const defaultTrackingStages: TrackingStage[] = ['RECEIVED', 'QUEUED', 'WASHING', 'DRYING', 'READY_FOR_PICKUP'].map((anchor, index) => ({ id: `builtin.${anchor}`, anchor, name: ['Sepatu Diterima', 'Pemeriksaan Selesai', 'Dalam Proses Pencucian', 'Dalam Proses Pengeringan', 'Selesai Dikerjakan'][index]!, visible: true }));
 export type Page<T> = { data: T[]; page: { nextCursor: string | null } };
-export type AuditLog = { id: string; actorUserId: string | null; actorUser?: { name: string } | null; action: string; entityType?: string | null; entityId: string | null; metadata?: Record<string, unknown> | null; createdAt: string };
+export type Feedback = { rating: number; review: string; createdAt: string };
+export type FeedbackEntry = Feedback & { id: string; publicationConsent: boolean; isPublished: boolean; order: { id?: string; number: string; customer: { name: string } } };
+export type TrackingOrder = Order & { feedbackEligible: boolean; feedback: Feedback | null };
+export type AuditLog = { id: string; actorUserId: string | null; actorUser?: { name: string; email?: string } | null; action: string; entityType?: string | null; entityId: string | null; metadata?: Record<string, unknown> | null; createdAt: string };
 const auditActions: Record<string, string> = {
   CUSTOMER_DELETED: 'Pelanggan dihapus permanen', ORDER_DELETED: 'Pesanan dihapus permanen', RATEPLAN_DELETED: 'Tarif dihapus permanen', USER_DELETED: 'Pengguna dihapus permanen',
   API_ACTIVITY: 'Permintaan API', HTTP_REQUEST: 'Permintaan API', API_ERROR: 'Permintaan API gagal',
@@ -127,10 +132,13 @@ export function orderNotificationFeedback(notification: Order['notification']) {
   }
 }
 export const labels: Record<string, string> = {
+  ACTIVE: 'Pesanan Aktif',
+  AWAITING_PAYMENT: 'Menunggu Pelunasan', REFUND_PENDING: 'Pengembalian Dana Tertunda',
   PACKING: 'Pengemasan · pemeriksaan mutu',
   RECEIVED: 'Pemeriksaan', WAITING_INSPECTION: 'Pemeriksaan', INSPECTION: 'Pemeriksaan', AWAITING_CONSENT: 'Menunggu persetujuan', QUEUED: 'Pemeriksaan · disetujui', WASHING: 'Pengerjaan', DRYING: 'Pengeringan', FINISHING: 'Pengeringan · finishing', QC: 'Pengeringan · pemeriksaan mutu', REWORK: 'Pengerjaan · ulang', READY_FOR_PICKUP: 'Siap diambil', HANDED_OVER: 'Sudah diambil', RETURN_PENDING: 'Tidak dicuci', RETURNED: 'Tidak dicuci', COMPLETED: 'Selesai', IN_PROGRESS: 'Diproses', APPROVED: 'Disetujui inspeksi', NEEDS_CONSENT: 'Perlu persetujuan risiko', REJECTED: 'Ditolak inspeksi', DECLINED: 'Ditolak pelanggan', APPROVE: 'Setuju', DECLINE: 'Tidak setuju', UNPAID: 'Belum dibayar', PARTIAL: 'Dibayar sebagian', PAID: 'Lunas', REFUNDED: 'Dikembalikan seluruhnya', PENDING: 'Menunggu antrean', PROCESSING: 'Sedang diajukan ke browser', SIMULATED: 'Simulasi berhasil', FAILED: 'Gagal', SKIPPED: 'Dilewati', SENT: 'Diajukan ke browser (belum bukti diterima)', BEFORE: 'Sebelum', INSPECTION_PHOTO: 'Bukti inspeksi privat', AFTER: 'Sesudah', OWNER: 'Pemilik', ADMIN: 'Admin', STAFF: 'Staf', QRIS: 'QRIS', CASH: 'Tunai', TRANSFER: 'Transfer', EWALLET: 'Dompet digital', OTHER: 'Lainnya', PAYMENT: 'Pembayaran', REFUND: 'Pengembalian dana',
 };
-export const label = (value: string) => labels[value] ?? value;
+export const titleCaseStatus = (value: string) => value.replace(/\p{L}[\p{L}\p{M}]*/gu, word => word[0]!.toLocaleUpperCase('id-ID') + word.slice(1));
+export const label = (value: string) => labels[value] ? titleCaseStatus(labels[value]) : value;
 export const money = (value: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(value);
 export const date = (value: string) => { const parsed = new Date(value); return Number.isNaN(parsed.getTime()) ? '-' : new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeStyle: 'short' }).format(parsed); };
 export const localDate = (value: string) => { const d = new Date(value); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
@@ -142,7 +150,11 @@ export function nextActions(item: Item, staff: boolean) {
 }
 export function actionLabel(status: string) { return ({ WASHING: 'Mulai pengerjaan', DRYING: 'Mulai pengeringan', PACKING: 'Mulai pengemasan dan QC', QC: 'Periksa mutu / pengerjaan ulang', REWORK: 'Ulangi pengerjaan' } as Record<string, string>)[status] ?? label(status); }
 export function itemFee(item: Item) { return !item.outcome || item.status === 'AWAITING_CONSENT' ? 'Harga belum dikonfirmasi' : `Biaya diterima ${money(item.finalPriceIdr)}`; }
-export function statusName(map: Record<string, string> | undefined, context: string, code: string, fallback = label(code)) { return map?.[`${context}.${code}`] ?? fallback; }
+export function statusName(map: Record<string, string> | undefined, context: string, code: string, fallback = label(code)) { return titleCaseStatus(map?.[`${context}.${code}`] ?? fallback); }
+export function adminOrderStatus(order: Pick<Order, 'aggregateStatus' | 'balanceIdr' | 'refundDueIdr'>, map?: Record<string, string>) {
+  const code = orderStatusCode(order);
+  return titleCaseStatus(orderStatusLabels[code] ?? statusName(map, 'admin', code));
+}
 export function trackingUrl(token: string, approvalToken = '', itemId = '', origin = '') {
   if (!origin) return '';
   const url = new URL(`/track/${token}`, origin);

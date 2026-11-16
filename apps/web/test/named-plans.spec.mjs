@@ -8,7 +8,7 @@ const initialPlans = () => [{ id: 'custom', name: 'Member November', isActive: t
 function savedOrder() { return { id: 'order', number: 'CS-FIXTURE', customer, items: [], payments: [], totalIdr: 98765, paidIdr: 0, balanceIdr: 98765, paymentStatus: 'UNPAID', aggregateStatus: 'WAITING_INSPECTION', estimatedCompletionAt: '2026-11-15T16:59:59.999Z', pickupInstructions: '', pricing: { version: 2, name: 'Nama saat transaksi', planId: 'deleted', revision: 7, rules, serviceId: 'service', stage: 'ESTIMATE', pairs: 1, initialTotalIdr: 98765, totalIdr: 98765, lockedAt: null } }; }
 async function mock(page, role = 'OWNER', handler = () => undefined) {
   const state = { plans: initialPlans(), mutations: [], previews: [], orders: [] };
-  await page.route('**/api/**', async route => {
+  await page.route('**/api/v1/**', async route => {
     const request = route.request(); const path = new URL(request.url()).pathname;
     const override = await handler(path, request, state);
     if (override) return route.fulfill(override);
@@ -34,8 +34,7 @@ async function mock(page, role = 'OWNER', handler = () => undefined) {
 }
 async function tariffs(page) {
   await page.goto(`${origin}/admin`);
-  await expect(page.locator('.mobile-menu')).toBeAttached();
-  if (await page.locator('.mobile-menu').isVisible()) await page.locator('.mobile-menu').click();
+  await expect(page.getByRole('navigation', { name: 'Navigasi utama' })).toBeAttached();
   await page.getByRole('navigation').getByRole('button', { name: 'Tarif Pesanan', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Member November' })).toBeVisible();
 }
@@ -77,7 +76,7 @@ test('owner edits full replacement revision, deactivates; new order excludes ina
   expect(state.mutations).toEqual([{ method: 'PATCH', path: '/api/v1/pricing/plans/custom', input: { name: 'Member baru', isActive: false, turnaroundPolicy: 'REGULAR', revision: 7, rules: [{ ...rules[0], priceIdr: 125000 }, rules[1]] } }]);
   await intake(page);
   await expect(page.getByRole('alert')).toContainText('Tidak ada tarif aktif');
-  await expect(page.getByLabel('Tarif pesanan').locator('option')).toHaveCount(1);
+  await expect(page.getByRole('group', { name: 'Tarif dan estimasi' }).getByRole('combobox').locator('option')).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Buat pesanan', exact: true })).toBeDisabled();
 });
 
@@ -121,7 +120,7 @@ test('optimistic conflict retains draft, never silently retries', async ({ page 
 
 test('new order one active selector; server preview follows pairs; posts plan ID only', async ({ page }) => {
   const state = await mock(page, 'ADMIN'); await intake(page); await fillOrder(page);
-  const select = page.getByLabel('Tarif pesanan'); const save = page.getByRole('button', { name: 'Buat pesanan', exact: true });
+  const select = page.getByRole('group', { name: 'Tarif dan estimasi' }).getByRole('combobox'); const save = page.getByRole('button', { name: 'Buat pesanan', exact: true });
   await expect(select).toHaveCount(1); await expect(select.locator('option')).toHaveText(['Pilih tarif aktif', 'Member November']);
   await expect(save).toBeDisabled(); await select.selectOption('custom');
   await expect(save).toBeEnabled(); await expect(page.getByRole('status').filter({ hasText: 'Estimasi server:' })).toContainText('98.765');
@@ -145,7 +144,7 @@ for (const failure of ['fetch', 'empty', 'preview']) test(`new order fails close
     if (path.endsWith('/pricing/preview') && failure === 'preview') return { status: 503, json: { error: { message: 'Estimasi tidak tersedia' } } };
   });
   await intake(page); await fillOrder(page);
-  if (failure === 'preview') await page.getByLabel('Tarif pesanan').selectOption('custom');
+  if (failure === 'preview') await page.getByRole('group', { name: 'Tarif dan estimasi' }).getByRole('combobox').selectOption('custom');
   await expect(page.getByRole('alert')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Buat pesanan', exact: true })).toBeDisabled();
   expect(state.orders).toEqual([]);
@@ -153,11 +152,11 @@ for (const failure of ['fetch', 'empty', 'preview']) test(`new order fails close
 
 test('refreshed inactive selection cleared', async ({ page }) => {
   const state = await mock(page); await intake(page);
-  await page.getByLabel('Tarif pesanan').selectOption('custom');
+  await page.getByRole('group', { name: 'Tarif dan estimasi' }).getByRole('combobox').selectOption('custom');
   await expect(page.getByRole('button', { name: 'Buat pesanan', exact: true })).toBeEnabled();
   state.plans[0].isActive = false;
   await page.getByRole('button', { name: 'Muat ulang tarif', exact: true }).click();
-  await expect(page.getByLabel('Tarif pesanan')).toHaveValue('');
+  await expect(page.getByRole('group', { name: 'Tarif dan estimasi' }).getByRole('combobox')).toHaveValue('');
   await expect(page.getByRole('button', { name: 'Buat pesanan', exact: true })).toBeDisabled();
 });
 
@@ -177,7 +176,7 @@ test('stale preview cannot enable submit after pair count changes', async ({ pag
     }
   });
   await intake(page);
-  await page.getByLabel('Tarif pesanan').selectOption('custom');
+  await page.getByRole('group', { name: 'Tarif dan estimasi' }).getByRole('combobox').selectOption('custom');
   await expect.poll(() => pending.length).toBe(1);
   await page.getByRole('button', { name: 'Tambah sepatu', exact: true }).click();
   await expect.poll(() => pending.length).toBe(2);
@@ -219,7 +218,7 @@ test('Fast selector price and turnaround; owner policy editor', async ({ page })
   });
   state.plans.push({ id: 'fast', name: 'Fast', isActive: true, revision: 1, turnaroundPolicy: 'FAST', rules: [{ kind: 'PACKAGE', minPairs: 1, maxPairs: 1, priceIdr: 80000 }] });
   await intake(page);
-  await page.getByLabel('Tarif pesanan').selectOption('fast');
+  await page.getByRole('group', { name: 'Tarif dan estimasi' }).getByRole('combobox').selectOption('fast');
   await expect(page.getByText('Estimasi Fast:', { exact: false })).toContainText('besok maksimal 17:00 WIB');
   await expect(page.getByText('Estimasi Fast:', { exact: false })).toContainText('lusa maksimal 17:00 WIB');
   await expect(page.getByText('Estimasi Fast:', { exact: false })).toContainText('termasuk akhir pekan');

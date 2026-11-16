@@ -8,7 +8,7 @@ const order = { id: 'order-ux', number: 'UX-001', customer, estimatedCompletionA
 async function fixture(page, options = {}) {
   const commands = [];
   let state = options.state ?? { state: 'stopped', ready: false, realSendEnabled: false };
-  await page.route('**/api/**', async route => {
+  await page.route('**/api/v1/**', async route => {
     const url = new URL(route.request().url()); const path = url.pathname.replace('/api/v1', '');
     let body = { data: [], page: { nextCursor: null } };
     if (path === '/auth/me') body = { user: { id: 'owner-ux', name: 'Pemilik Uji', role: 'OWNER' }, csrfToken: 'test-only' };
@@ -33,9 +33,6 @@ for (const width of [390, 1440]) {
   test(`responsive status cards and activation guard at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     const mock = await fixture(page, { state: { state: 'ready', ready: true, realSendEnabled: false } });
-    if (width < 600) {
-      await page.getByRole('button', { name: 'Menu', exact: true }).click();
-    }
     await openWhatsApp(page);
     const cards = page.locator('.wa-status-card');
     await expect(cards).toHaveCount(2);
@@ -45,7 +42,7 @@ for (const width of [390, 1440]) {
     expect(width < 600 ? second.y > first.y : second.x > first.x).toBeTruthy();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
     page.once('dialog', dialog => dialog.dismiss());
-    await page.getByRole('button', { name: 'Aktifkan pengiriman', exact: true }).click();
+    await page.getByRole('button', { name: 'Aktifkan Pengiriman', exact: true }).click();
     expect(mock.commands).toEqual([]);
   });
 }
@@ -55,11 +52,11 @@ test('completed start never means connected; diagnostics collapsed; no automatic
   await openWhatsApp(page);
   await expect(page.getByText('Menyiapkan koneksi.', { exact: false })).toBeVisible();
   await expect(page.getByText('Perintah selesai diproses.', { exact: false })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Aktifkan pengiriman', exact: true })).toHaveCount(0);
-  await expect(page.locator('[aria-labelledby="wa-heading"] details')).not.toHaveAttribute('open', '');
+  await expect(page.getByRole('button', { name: 'Aktifkan Pengiriman', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Diagnostik dan Pengelolaan Sesi', exact: true })).toBeVisible();
   expect(mock.commands).toEqual([]);
   mock.setState({ state: 'error', ready: false, realSendEnabled: false, error: 'INITIALIZATION_FAILED' });
-  await page.getByRole('button', { name: 'Periksa status WhatsApp' }).click();
+  await page.getByRole('button', { name: 'Periksa Status WhatsApp' }).click();
   await expect(page.getByRole('alert')).toContainText('Penyiapan WhatsApp gagal. Penyebab belum dipastikan');
   expect(mock.commands).toEqual([]);
 });
@@ -67,7 +64,7 @@ test('completed start never means connected; diagnostics collapsed; no automatic
 test('activation requires explicit risk consent; logout requires confirmation', async ({ page }) => {
   const mock = await fixture(page, { state: { state: 'ready', ready: true, realSendEnabled: false } });
   await openWhatsApp(page);
-  const activate = page.getByRole('button', { name: 'Aktifkan pengiriman', exact: true });
+  const activate = page.getByRole('button', { name: 'Aktifkan Pengiriman', exact: true });
   page.once('dialog', dialog => dialog.dismiss());
   await activate.click();
   expect(mock.commands).toEqual([]);
@@ -77,9 +74,9 @@ test('activation requires explicit risk consent; logout requires confirmation', 
   await expect(page.getByText('Permintaan masuk antrean.', { exact: false })).toBeVisible();
   await expect(page.getByText('Pengiriman nonaktif.', { exact: false })).toBeVisible();
   await expect(activate).toBeEnabled();
-  await page.getByText('Diagnostik dan pengelolaan sesi', { exact: true }).click();
+  await page.getByText('Diagnostik dan Pengelolaan Sesi', { exact: true }).click();
   page.once('dialog', dialog => dialog.dismiss());
-  await page.getByRole('button', { name: 'Putuskan dan hapus sesi' }).click();
+  await page.getByRole('button', { name: 'Putuskan dan Hapus Sesi' }).click();
   expect(mock.commands).toHaveLength(1);
 });
 
@@ -95,10 +92,10 @@ for (const [notification, expected] of [
 ]) {
   test(`order feedback reflects persisted ${notification?.reason ?? notification?.status ?? 'missing'} status`, async ({ page }) => {
     await fixture(page, { notification });
-    await page.getByRole('button', { name: 'Pesanan baru', exact: true }).click();
+    await page.getByRole('button', { name: 'Pesanan Baru', exact: true }).click();
     await page.getByLabel('Cari pelanggan').fill(customer.name);
     await page.getByRole('button', { name: `${customer.name} · ${customer.whatsapp}`, exact: true }).click();
-    await page.getByLabel('Tarif Pesanan').selectOption(plan.id);
+    await page.getByRole('group', { name: 'Tarif dan estimasi' }).getByRole('combobox').selectOption(plan.id);
     await expect(page.locator('input[type="datetime-local"]')).toHaveCount(0);
     await page.getByLabel('Merek *', { exact: true }).fill('Uji');
     await page.getByLabel('Model (opsional)', { exact: true }).fill('Model Uji');
@@ -128,7 +125,7 @@ for (const enabled of [false, true]) {
       await expect(page.getByRole('button', { name: 'Hubungkan WhatsApp', exact: true })).toHaveCount(0);
       await expect(page.getByText('WhatsApp terhubung.', { exact: true })).toBeVisible();
       await expect(page.getByText(enabled ? 'Pengiriman aktif untuk event baru' : 'Pengiriman nonaktif.', { exact: false })).toBeVisible();
-      await page.getByRole('button', { name: 'Periksa status WhatsApp', exact: true }).click();
+      await page.getByRole('button', { name: 'Periksa Status WhatsApp', exact: true }).click();
       await page.getByRole('button', { name: /^(Ringkasan|Dashboard)$/ }).click();
       await openWhatsApp(page);
       await expect(page.getByText('Memeriksa status WhatsApp…', { exact: true })).toBeVisible();
@@ -150,7 +147,7 @@ test('late stopped response cannot overwrite newer ready snapshot', async ({ pag
     else await route.fulfill({ json: { state: 'ready', ready: true, realSendEnabled: true } });
   });
   await expect.poll(() => held).toBe(true);
-  await page.getByRole('button', { name: 'Periksa status WhatsApp' }).click();
+  await page.getByRole('button', { name: 'Periksa Status WhatsApp' }).click();
   await expect(page.locator('[aria-labelledby="wa-heading"]')).toHaveAttribute('aria-busy', 'false');
   release();
   await page.waitForTimeout(200);

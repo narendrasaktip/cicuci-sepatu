@@ -5,7 +5,7 @@ const origin = process.env.TEST_WEB_ORIGIN ?? 'http://127.0.0.1:5173';
 const id = '11111111-1111-4111-8111-111111111111';
 async function setup(page, role = 'OWNER') {
   const state = { unexpected: [], confirmations: 0, previews: 0, keys: [] };
-  await page.route('**/api/**', async route => {
+  await page.route('**/api/v1/**', async route => {
     const path = new URL(route.request().url()).pathname.replace('/api/v1', '');
     let json;
     if (path === '/auth/me') json = { user: { id: 'fixture', name: 'Uji', role }, csrfToken: 'csrf' };
@@ -62,7 +62,8 @@ for (const role of ['OWNER', 'ADMIN']) test(`${role} preview, confirmation and r
     await expect(preview).toContainText('Dina');
     await confirm.click();
     const report = page.getByRole('region', { name: 'Laporan Pesan Custom' });
-    await expect(report).toContainText('FAILED: 1');
+    await expect(report.locator('.report-stat').filter({ hasText: 'FAILED' })).toContainText('1');
+    await expect(report.locator('.recipient-status')).toHaveText('FAILED');
     await expect(report).toContainText('tidak dicoba ulang otomatis');
     await expect(report).toContainText('bukan bukti diterima atau dibaca');
     await expect(page.getByText('15 Nov 2026, 16.00 WIB', { exact: true })).toBeVisible();
@@ -108,6 +109,14 @@ for (const width of [390, 1440]) test(`editor toolbar, placeholder, escaped simu
   await editor.fill('<img src=x onerror="window.xss=1"> {customer_name} ' + 'z'.repeat(500));
   await expect(simulation).toContainText('<img src=x onerror="window.xss=1"> Dina');
   await expect(simulation.locator('img')).toHaveCount(0);
+  await editor.fill('*Halo* _Dina_ ~lama~ ```kode <aman>```');
+  await expect(simulation.locator('strong')).toHaveText('Halo');
+  await expect(simulation.locator('em')).toHaveText('Dina');
+  await expect(simulation.locator('s')).toHaveText('lama');
+  await expect(simulation.locator('code')).toHaveText('kode <aman>');
+  await editor.fill('*Halo _{customer_name}_* <script>window.xss=1</script>');
+  await expect(simulation.locator('strong em')).toHaveText('Dina');
+  await expect(simulation.locator('script')).toHaveCount(0);
   expect(await page.evaluate(() => window.xss)).toBeUndefined();
   const formBox = await page.locator('.broadcast-panel form').boundingBox();
   const simulationBox = await simulation.boundingBox();

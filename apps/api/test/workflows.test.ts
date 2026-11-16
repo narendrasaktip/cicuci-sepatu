@@ -47,7 +47,7 @@ test('real DB / running proxy: multi-item workflow, consent, ledger, photos, RBA
     await call(`/items/${a}/photos`,'POST',{kind:'BEFORE',customerVisible:true,mime:'image/png',base64:Buffer.from('not image').toString('base64')},400);
     await call(`/items/${a}/inspection`,'POST',{outcome:'APPROVED',notes:'ok',quotedPriceIdr:50000});
     await step(b,'INSPECTION');await photo(b,'INSPECTION',false);
-    await call(`/items/${b}/inspection`,'POST',{outcome:'NEEDS_CONSENT',notes:'internal inspection',risk:'Color may bleed',quotedPriceIdr:70000});
+    await call(`/items/${b}/inspection`,'POST',{outcome:'NEEDS_CONSENT',notes:'internal inspection',findings:'Color transfer observed',risk:'Color may bleed',quotedPriceIdr:70000});
     await call(`/items/${b}/transition`,'POST',{toStatus:'WASHING'},409);
     await step(c,'INSPECTION');await call(`/items/${c}/inspection`,'POST',{outcome:'REJECTED',notes:'unsafe',quotedPriceIdr:90000});
     assert.equal((await call(`/orders/${order.id}`)).items.find((i:{id:string})=>i.id===c).finalPriceIdr,0);
@@ -61,23 +61,25 @@ test('real DB / running proxy: multi-item workflow, consent, ledger, photos, RBA
     await call(`/items/${b}/consent/reissue`,'POST',{});
     const decisions=await Promise.all(['APPROVE','APPROVE'].map(decision=>fetch(`${base}/track/${order.trackingToken}/consent`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({itemId:b,decision})})));
     assert.deepEqual(decisions.map(r=>r.status).sort(),[200,409]);
-    await step(a,'WASHING');await step(a,'DRYING');await step(a,'FINISHING');await step(a,'QC');
+    await step(a,'WASHING');await step(a,'DRYING');await step(a,'PACKING');
     await call(`/items/${a}/transition`,'POST',{toStatus:'READY_FOR_PICKUP',qcPassed:true},409);
-    await step(a,'REWORK',{qcPassed:false,reason:'Stain remains'});await step(a,'FINISHING');await step(a,'QC');
+    await step(a,'REWORK',{qcPassed:false,reason:'Stain remains'});await step(a,'WASHING');await step(a,'DRYING');await step(a,'PACKING');
     const after=await photo(a,'AFTER');await step(a,'READY_FOR_PICKUP',{qcPassed:true,dryConfirmed:true,finishingConfirmed:true});
     await call(`/photos/${after.id}`,'DELETE',{},409);
-    assert.equal((await call(`/orders/${order.id}`)).aggregateStatus,'READY_FOR_PICKUP');
+    assert.equal((await call(`/orders/${order.id}`)).aggregateStatus,'IN_PROGRESS'); // Second shoe remains queued.
     await call(`/orders/${order.id}/payments`,'POST',{amountIdr:120001,method:'CASH',receivedAt:new Date().toISOString()},409);
     let paid=await call(`/orders/${order.id}/payments`,'POST',{amountIdr:50000,method:'CASH',receivedAt:new Date().toISOString()},201);assert.equal(paid.paymentStatus,'PARTIAL');
     paid=await call(`/orders/${order.id}/payments`,'POST',{amountIdr:70000,method:'QRIS',receivedAt:new Date().toISOString()},201);assert.equal(paid.paymentStatus,'PAID');
     paid=await call(`/orders/${order.id}/refunds`,'POST',{amountIdr:120000,method:'CASH',reason:'Customer refund',receivedAt:new Date().toISOString()},201);assert.equal(paid.paymentStatus,'REFUNDED');
     await call(`/orders/${order.id}/refunds`,'POST',{amountIdr:1,method:'CASH',reason:'bad',receivedAt:new Date().toISOString()},409);
-    await step(a,'HANDED_OVER');await step(c,'RETURNED');assert.equal((await call(`/orders/${order.id}`)).paymentStatus,'REFUNDED');
+    await call(`/items/${a}/transition`,'POST',{toStatus:'HANDED_OVER'},409);
+    paid=await call(`/orders/${order.id}/payments`,'POST',{amountIdr:120000,method:'CASH',receivedAt:new Date().toISOString()},201);assert.equal(paid.paymentStatus,'PAID');
+    await step(a,'HANDED_OVER');assert.equal((await call(`/orders/${order.id}`)).paymentStatus,'PAID');
     const rotated=await call(`/orders/${order.id}/tracking-token/rotate`,'POST',{});await call(`/track/${order.trackingToken}`,'GET',undefined,404);await call(`/track/${rotated.trackingToken}`);
     await call(`/orders/${order.id}/tracking-token/revoke`,'POST',{});await call(`/track/${rotated.trackingToken}`,'GET',undefined,404);
     const events=await db.notificationEvent.findMany({where:{orderId:order.id}});assert.ok(events.length>5);assert.equal(new Set(events.map(e=>e.eventKey)).size,events.length);
     const stale=events.find(e=>e.itemId===a&&e.expectedStatus==='WASHING')!;await deliverNotification(stale.id,0);assert.equal((await db.notificationEvent.findUniqueOrThrow({where:{id:stale.id}})).status,'SKIPPED');
-    const current=events.find(e=>e.itemId===a&&e.expectedStatus==='HANDED_OVER')!;await deliverNotification(current.id,0);await deliverNotification(current.id,0);assert.equal((await db.notificationEvent.findUniqueOrThrow({where:{id:current.id}})).status,'SKIPPED');assert.equal(await db.notificationAttempt.count({where:{eventId:current.id}}),1);
+    assert.equal(events.some(e=>e.itemId===a&&e.expectedStatus==='HANDED_OVER'),false);
     const retryEvent=await db.notificationEvent.create({data:{orderId:order.id,eventKey:`${prefix}-retry`,recipient:customer.whatsapp,template:'TEST_RETRY',message:'test',optedIn:true,status:'FAILED',nextAttemptAt:new Date(Date.now()+3600000)}});
     await call(`/notifications/${retryEvent.id}/retry`,'POST',{},409);
     const optedOut=await db.notificationEvent.create({data:{orderId:order.id,eventKey:`${prefix}-optout`,recipient:customer.whatsapp,template:'TEST_OPTOUT',message:'test',optedIn:true,nextAttemptAt:new Date(Date.now()+3600000)}});await call(`/customers/${customerId}`,'PATCH',{notificationConsent:false});await deliverNotification(optedOut.id,0);assert.equal((await db.notificationEvent.findUniqueOrThrow({where:{id:optedOut.id}})).status,'SKIPPED');
@@ -89,7 +91,11 @@ test('real DB / running proxy: multi-item workflow, consent, ledger, photos, RBA
     const race=await Promise.all([1,2].map(()=>fetch(`${base}/items/${b}/transition`,{method:'POST',headers:{'Content-Type':'application/json',Cookie:cookie,'X-CSRF-Token':csrf,'Idempotency-Key':(()=>{const k=randomUUID();keys.push(k);return k;})()},body:JSON.stringify({toStatus:'WASHING'})})));assert.deepEqual(race.map(r=>r.status).sort(),[200,409]);
     // Decline branch in isolated second order.
     await call('/auth/login','POST',{email:owner.email,password},204);csrf=(await call('/auth/me')).csrfToken;
-    const second=await call('/orders','POST',{...input,items:[input.items[0]]},201);orderIds.push(second.id);const d=second.items[0].id;await photo(d);await photo(d,'INSPECTION',false);await step(d,'INSPECTION');const declined=await call(`/items/${d}/inspection`,'POST',{outcome:'NEEDS_CONSENT',notes:'risk',risk:'Shrinkage',quotedPriceIdr:50000});await call(`/track/${second.trackingToken}/consent`,'POST',{approvalToken:declined.consent.approvalToken,decision:'DECLINE'});assert.equal((await call(`/orders/${second.id}`)).totalIdr,0);await step(d,'RETURNED');assert.equal((await call(`/orders/${second.id}`)).aggregateStatus,'COMPLETED');
+    await step(b,'DRYING');await step(b,'PACKING');await photo(b,'AFTER');await step(b,'READY_FOR_PICKUP',{qcPassed:true,dryConfirmed:true,finishingConfirmed:true});
+    // Whole-order handover requires every shoe ready; final notification is deduplicated.
+    await step(b,'HANDED_OVER');
+    const second=await call('/orders','POST',{...input,items:[input.items[0]]},201);orderIds.push(second.id);const d=second.items[0].id;await photo(d);await photo(d,'INSPECTION',false);await step(d,'INSPECTION');await call(`/items/${d}/inspection`,'POST',{outcome:'NEEDS_CONSENT',notes:'risk',findings:'Material vulnerable',risk:'Shrinkage',quotedPriceIdr:50000});await call(`/track/${second.trackingToken}/consent`,'POST',{itemId:d,decision:'DECLINE'});assert.equal((await call(`/orders/${second.id}`)).totalIdr,0);await call(`/orders/${second.id}/handover`,'POST',{});assert.equal((await call(`/orders/${second.id}`)).aggregateStatus,'COMPLETED');
+    const finalEvent=await db.notificationEvent.findUniqueOrThrow({where:{eventKey:`order-handover:${second.id}`}});await deliverNotification(finalEvent.id,0);await deliverNotification(finalEvent.id,0);assert.equal(await db.notificationAttempt.count({where:{eventId:finalEvent.id}}),1);
   } finally {
     // Delete only captured fixture IDs, children first. No reset/truncate/global deletion.
     const items=await db.orderItem.findMany({where:{orderId:{in:orderIds}},select:{id:true}});const itemIds=items.map(i=>i.id);

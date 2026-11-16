@@ -17,6 +17,7 @@ playwright-report/
 
 # Local runtime data, exports, backups, and browser test artifacts.
 test-results*/
+apps/web/release-*-results/
 playwright-report*/
 *.log
 *.sql.gz

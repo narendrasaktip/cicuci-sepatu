@@ -1,6 +1,9 @@
 <script setup lang="ts">
 // Official Tabler outline paths; MIT attribution in assets/THIRD_PARTY_NOTICES.txt.
 const paths = {
+  "star": [
+    "M12 3l2.781 5.635l6.219 .904l-4.5 4.386l1.062 6.193l-5.562 -2.924l-5.562 2.924l1.062 -6.193l-4.5 -4.386l6.219 -.904z"
+  ],
   "trash": [
     "M4 7l16 0", "M10 11l0 6", "M14 11l0 6",
     "M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12",

@@ -26,7 +26,7 @@ test('order sorting validates inputs, uses database ordering and stable cursor t
         const response = await call(new URLSearchParams({ sort, direction, cursor: 'fixture-cursor', limit: '1', q: 'needle', status: 'RECEIVED' }).toString());
         assert.equal(response.status, 200); await response.json();
         assert.deepEqual(query.orderBy, [sort === 'customer' ? { customer: { name: direction } } : { [sort === 'status' ? 'aggregateStatus' : sort]: direction }, { id: direction }]);
-        assert.deepEqual(query.cursor, { id: 'fixture-cursor' }); assert.equal(query.skip, 1); assert.equal(query.take, 2);
+        assert.deepEqual(query.cursor, { id: 'fixture-cursor' }); assert.equal(query.skip, 1); assert.equal(query.take, 100); // Filter derived status before pagination, in bounded batches.
         assert.equal((query.where as { aggregateStatus: string }).aggregateStatus, 'RECEIVED');
       }
     }

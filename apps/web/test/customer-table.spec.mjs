@@ -13,7 +13,7 @@ const order = { id: 'order-fixture', number: 'CS-TABLE', customer: customers[0],
 async function start(page, context, role = 'OWNER') {
   const state = { unexpected: [], calls: [], mutations: [], empty: false, fail: false, hold: null, history: [order], records: structuredClone(customers) };
   // Every API request is intercepted before navigation. Never continue/fallback to live API.
-  await context.route('**/api/**', async route => {
+  await context.route('**/api/v1/**', async route => {
     const req = route.request(), url = new URL(req.url()), path = url.pathname.replace('/api/v1', ''), method = req.method();
     state.calls.push(method + ' ' + path + url.search);
     const list = (data, nextCursor = null) => ({ data, page: { nextCursor } });
@@ -33,6 +33,8 @@ async function start(page, context, role = 'OWNER') {
     else if (path === '/whatsapp/status') body = { state: 'ready', ready: true };
     else if (path === '/orders') body = list(url.searchParams.has('customerId') ? state.history : []);
     else if (path === '/orders/order-fixture') body = order;
+    else if (path === '/services' || path === '/users') body = list([]);
+    else if (path === '/orders/order-fixture/tracking-token') body = { trackingToken: 'fixture-private-token' };
     else if (path === '/customers/customer-one') body = state.records[0];
     else if (path === '/customers') {
       if (state.hold) await state.hold;
@@ -51,7 +53,7 @@ async function start(page, context, role = 'OWNER') {
   await expect(page.locator('.customer-table')).toHaveAttribute('aria-busy', 'false');
   return state;
 }
-const action = (page, verb) => page.getByRole('button', { name: `${verb === 'Hapus' ? 'Hapus permanen' : verb} pelanggan Ayu Lestari`, exact: true });
+const action = (page, verb) => page.getByRole('button', { name: verb === 'Hapus' ? 'Hapus permanen pelanggan Ayu Lestari' : `${verb} Pelanggan Ayu Lestari`, exact: true }).filter({ visible: true });
 
 for (const width of [1440, 768, 390, 320]) test(`semantic customer table, long names, keyboard actions ${width}`, async ({ page, context }, info) => {
   await page.setViewportSize({ width, height: 1000 });
@@ -60,7 +62,7 @@ for (const width of [1440, 768, 390, 320]) test(`semantic customer table, long n
   await expect(header).toHaveClass(/orders-topbar/);
   await expect(header.getByRole('heading', { name: 'Pelanggan', exact: true })).toBeVisible();
   await expect(header.locator('.page-description')).not.toBeEmpty();
-  await expect(header.getByRole('button', { name: 'Pelanggan baru', exact: true })).toBeVisible();
+  await expect(header.getByRole('button', { name: 'Pelanggan Baru', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Daftar Pelanggan', exact: true })).toHaveCount(0);
   const table = page.getByRole('table', { name: 'Pelanggan, maksimum 25 per halaman' });
   await expect(table.getByRole('columnheader')).toHaveText(['Pelanggan', 'Nomor WhatsApp', 'Notifikasi', 'Aksi']);
@@ -109,15 +111,15 @@ test('search submit, next/previous, reset and detail', async ({ page, context })
   await action(page, 'Detail').click();
   const detail = page.getByRole('dialog', { name: 'Bu Ayu Lestari' });
   await expect(detail).toBeVisible(); await expect(detail).toContainText('Catatan contoh.');
-  await expect(detail).toContainText('6281234567890'); await expect(detail).toContainText('Opt-in notifikasi');
+  await expect(detail).toContainText('6281234567890'); await expect(detail).toContainText('Opt-in Notifikasi');
   await page.keyboard.press('Escape'); await expect(detail).toHaveCount(0); await expect(action(page, 'Detail')).toBeFocused();
   await action(page, 'Detail').click();
-  await detail.getByRole('button', { name: 'Ubah pelanggan' }).click();
+  await detail.getByRole('button', { name: 'Ubah Pelanggan' }).click();
   const edit = page.getByRole('dialog', { name: 'Ubah pelanggan' });
   await expect(edit).toBeVisible(); await edit.getByRole('button', { name: 'Batal' }).click();
   await expect(detail).toBeVisible();
   await detail.getByRole('button', { name: 'CS-TABLE', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Detail Pesanan', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'CS-TABLE', exact: true })).toBeVisible();
   expect(state.unexpected).toEqual([]); expect(state.mutations).toEqual([]);
 });
 
@@ -169,15 +171,15 @@ test('customer preference and raw history status remain independent of order sna
   state.history = statuses.map((aggregateStatus, i) => ({ ...order, id: `o-${i}`, aggregateStatus, handoverMethod: 'COURIER', handoverLocation: 'Lokasi pesanan' }));
   await action(page, 'Detail').click();
   const detail = page.getByRole('dialog', { name: 'Bu Ayu Lestari' });
-  await expect(detail).toContainText('Belum diatur. Gunakan Ubah pelanggan untuk menambah.');
+  await expect(detail).toContainText('Belum diatur. Gunakan Ubah Pelanggan untuk menambah.');
   await expect(detail).not.toContainText('Lokasi pesanan');
   const badges = detail.locator('.customer-order-status');
   await expect(badges).toHaveCount(statuses.length);
   const colors = await badges.evaluateAll(els => els.map(el => [el.dataset.status, getComputedStyle(el).backgroundColor, getComputedStyle(el).color]));
   expect(colors.map(c => c[0])).toEqual(statuses);
-  expect(new Set(colors.slice(0, 7).map(c => c[1])).size).toBe(7);
-  expect(colors[7].slice(1)).toEqual(colors[6].slice(1));
-  await detail.getByRole('button', { name: 'Ubah pelanggan' }).click();
+  expect(await badges.evaluateAll(els => els.map(el => el.dataset.tone))).toEqual(['blue', 'amber', 'blue', 'blue', 'teal', 'slate', 'green', 'blue']);
+  expect(colors[7].slice(1)).toEqual(colors[0].slice(1));
+  await detail.getByRole('button', { name: 'Ubah Pelanggan' }).click();
   const edit = page.getByRole('dialog', { name: 'Ubah pelanggan' });
   await edit.getByLabel('Preferensi penyerahan').selectOption('PICKUP');
   await edit.getByLabel('Lokasi preferensi').fill('Lokasi profil');
@@ -196,7 +198,7 @@ for (const role of ['OWNER', 'ADMIN']) test(`${role} edit/create mocked only; ow
   await dialog.getByLabel('Nama *', { exact: true }).fill('Ayu Baru');
   await dialog.getByRole('button', { name: 'Konfirmasi', exact: true }).click();
   await expect(page.getByRole('rowheader').first()).toHaveText('Bu Ayu Baru');
-  await page.getByRole('button', { name: 'Pelanggan baru', exact: true }).click();
+  await page.getByRole('button', { name: 'Pelanggan Baru', exact: true }).click();
   await dialog.getByLabel('Nama *', { exact: true }).fill('Contoh Baru');
   await dialog.getByLabel('Nomor WhatsApp *', { exact: true }).fill('081234567899');
   await dialog.getByRole('button', { name: 'Konfirmasi', exact: true }).click(); await expect(dialog).toHaveCount(0);

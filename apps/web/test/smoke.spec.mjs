@@ -4,7 +4,7 @@ test.use({ serviceWorkers: 'block', launchOptions: { executablePath: '/Applicati
 const origin = process.env.TEST_WEB_ORIGIN ?? 'http://127.0.0.1:5173';
 test('mobile login, keyboard focus, ignored preview, unavailable public token', async ({ page }) => {
   const errors = [], calls = []; page.on('pageerror', e => errors.push(e.message));
-  await page.route('**/api/**', route => {
+  await page.route('**/api/v1/**', route => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     calls.push(`${request.method()} ${path}`);

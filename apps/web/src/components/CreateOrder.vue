@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { api } from '../services/auth';
-import { turnaroundText, type Customer, type Order, type Page, type RatePlan } from '../services/domain';
+import { handoverLabels, turnaroundText, type Customer, type Order, type Page, type RatePlan } from '../services/domain';
 import PricingPreview from './PricingPreview.vue';
+import { useUnsavedChanges } from '../services/unsaved';
 const newPresentation = inject('newPresentation', ref(false));
 const emit = defineEmits<{ created: [order: Order]; cancel: [] }>();
 const customers = ref<Customer[]>([]); const query = ref(''); const cursor = ref<string | null>(null); const customerId = ref(''); const pickup = ref(''); const busy = ref(false); const error = ref('');
@@ -38,6 +39,9 @@ const customerKey = crypto.randomUUID(); const orderKey = crypto.randomUUID();
 let searchTimer: ReturnType<typeof setTimeout> | undefined; let searchSeq = 0;
 function shoe() { return { brand: '', model: '', color: '', initialNotes: '', assignedUserId: '' }; }
 const items = ref([shoe()]);
+const dirty = computed(() => !!query.value || !!customerId.value || !!newCustomer.value.name || !!newCustomer.value.whatsapp || items.value.some(item => !!item.brand || !!item.model || !!item.initialNotes));
+useUnsavedChanges(dirty);
+function cancel() { if (!dirty.value || window.confirm('Batalkan pesanan baru? Input belum disimpan akan hilang.')) emit('cancel'); }
 const plans = ref<RatePlan[]>([]); const ratePlanId = ref(''); const plansLoading = ref(true); const plansError = ref(''); const previewReady = ref(false);
 const activePlans = computed(() => plans.value.filter(p => p.isActive));
 const selectedPlan = computed(() => activePlans.value.find(p => p.id === ratePlanId.value));
@@ -101,7 +105,7 @@ async function save() {
       <button
         class="danger cancel-order"
         :disabled="busy"
-        @click="emit('cancel')"
+        @click="cancel"
       >
         Batal
       </button>
@@ -399,6 +403,14 @@ async function save() {
         maxlength="4000"
       /></label>
       <div class="actions">
+        <section
+          class="order-review"
+          aria-label="Ringkasan sebelum menyimpan"
+        >
+          <h3>Periksa Sebelum Menyimpan</h3><dl><div><dt>Pelanggan</dt><dd>{{ mode === 'new' ? newCustomer.name || 'Belum diisi' : selectedCustomer?.name || 'Belum dipilih' }}</dd></div><div><dt>Tarif</dt><dd>{{ selectedPlan?.name || 'Belum dipilih' }}</dd></div><div><dt>Sepatu</dt><dd>{{ items.length }} pasang</dd></div><div><dt>Penyerahan</dt><dd>{{ handoverLabels[handoverMethod] }}{{ handoverLocation ? ` · ${handoverLocation}` : '' }}</dd></div></dl><p class="muted">
+            Periksa estimasi tarif di atas. Harga akhir mengikuti pemeriksaan sepatu.
+          </p>
+        </section>
         <span>{{ items.length }} pasang</span><button :disabled="busy || !pricingReady">
           {{ busy ? 'Menyimpan…' : 'Buat pesanan' }}
         </button>
@@ -418,5 +430,6 @@ button.cancel-order:hover:not(:disabled) { background: #991b1b; border-color: #9
 .create-order { max-width: 900px; }
 .shoe-notes { grid-column: 1 / -1; }
 .add-shoe { margin-bottom: 1rem; }
+.order-review{flex-basis:100%;padding:18px;border:1px solid #d9e6f3;border-radius:12px;background:#f5f9ff}.order-review h3{font-size:15px;margin:0 0 12px}.order-review dl{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:0}.order-review dt{font-size:12px;color:#61758b}.order-review dd{margin:4px 0 0;font-size:14px;overflow-wrap:anywhere}.order-review p{font-size:12px}@media(max-width:600px){.order-review dl{grid-template-columns:1fr}}
 @media (max-width: 700px) { .shoe-notes { grid-column: auto; } }
 </style>

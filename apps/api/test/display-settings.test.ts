@@ -43,6 +43,7 @@ test('isolated HTTP: owner persistence/reset, CSRF/idempotency/audit, role-safe 
   const oldNotifications = [{ encryptedMessage: 'immutable historical ciphertext', message: '[tautan privat]', status: 'SIMULATED' }];
   const preserved = structuredClone(oldNotifications);
   const fake = {
+    feedback: { findUnique: async () => null },
     session: { findUnique: async () => authenticated ? { user: { id: 'owner', role, isActive: true }, csrfToken: 'csrf', expiresAt: new Date(Date.now() + 60000) } : null },
     user: { findUnique: async () => ({ isActive: true, role }) },
     storeSettings: { findUnique: async () => ({ ...profile, waActivation: 'PRIVATE', waTemplates: ['PRIVATE'] }), upsert: async ({ update }: { update: Partial<typeof profile> }) => { profile = { ...profile, ...update }; return profile; } },

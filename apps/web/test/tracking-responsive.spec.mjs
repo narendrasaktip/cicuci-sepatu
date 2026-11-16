@@ -14,7 +14,7 @@ function fixture() {
 async function mockApi(page) {
   const state = { order: fixture(), status: 200, gate: null, postGate: null, postStatus: 200, calls: [], unexpected: [], errors: [], posts: [] };
   page.on('pageerror', error => state.errors.push(error.message));
-  await page.route('**/api/**', async route => {
+  await page.route('**/api/v1/**', async route => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const call = `${request.method()} ${path}`;
@@ -28,7 +28,8 @@ async function mockApi(page) {
       state.posts.push({ path, body });
       if (state.postGate) await state.postGate;
       if (state.postStatus !== 200) return route.fulfill({ status: state.postStatus, json: { error: { code: 'CONFLICT' } } });
-      expect(body.approvalToken).toBe(approval);
+      expect(body).not.toHaveProperty('approvalToken');
+      expect(body.itemId).toBe('shoe-fixture');
       expect(['APPROVE', 'DECLINE']).toContain(body.decision);
       state.order.items[0].status = body.decision === 'APPROVE' ? 'QUEUED' : 'RETURN_PENDING';
       state.order.items[0].consents[0].decision = body.decision;
@@ -119,7 +120,7 @@ for (const width of [320, 360, 390, 768, 1440]) {
     await expect(page.locator('.tracking-brand')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
     await expect(page.locator('.tracking-header h1')).toHaveCSS('color', 'rgb(21, 43, 73)');
     await expect(page.locator('.order-number')).toHaveText(state.order.number);
-    await expect(page.locator('.order-number')).toHaveCSS('font-size', '24px');
+    await expect(page.locator('.order-number')).toHaveCSS('font-size', '20px');
     await expect(page.locator('.order-number')).toHaveCSS('font-weight', '700');
     await expect(page.locator('section.order-summary.panel')).toHaveCount(1);
     await expect(page.getByRole('heading', { name: 'Informasi Pesanan', exact: true })).toBeVisible();
@@ -188,12 +189,12 @@ test('consent card risk-only copy; legacy defaults and custom labels stay compat
   await expect(card).toContainText('Dengan menyetujui, Anda menerima risiko pencucian di atas.');
   await expect(card).toContainText('Menolak berarti sepatu dikembalikan tanpa biaya cuci.');
   await expect(page.locator('.summary-total dd')).toHaveText(/Rp\s*45\.000/);
-  await expect(page.getByLabel('Status Pesanan', { exact: true })).toHaveText('Proses Pengerjaan');
+  await expect(page.getByLabel('Status Pesanan', { exact: true })).toHaveText('Pengembalian Dana Tertunda');
   await expect(page.locator('article').first().locator('.badge')).toHaveText('Menunggu Persetujuan Customer');
   await expect(page.locator('.timeline').first().locator('strong').last()).toHaveText('Menunggu Persetujuan Customer');
   state.order.statusLabels = Object.fromEntries(['order', 'shoe', 'history'].map(context => [`${context}.AWAITING_CONSENT`, 'Persetujuan Risiko Pelanggan']));
   await page.getByRole('button', { name: 'Perbarui Status' }).click();
-  await expect(page.getByLabel('Status Pesanan', { exact: true })).toHaveText('Proses Pengerjaan');
+  await expect(page.getByLabel('Status Pesanan', { exact: true })).toHaveText('Pengembalian Dana Tertunda');
   await expect(page.locator('article').first().locator('.badge')).toHaveText('Persetujuan Risiko Pelanggan');
   await expect(page.locator('.timeline').first().locator('strong').last()).toHaveText('Persetujuan Risiko Pelanggan');
   expect(state.posts).toEqual([]);
@@ -254,7 +255,7 @@ test('expired consent, removed manual token UI, archive read-only', async ({ pag
   state.order.items[0].consents[0].expired = true;
   await page.setViewportSize({ width: 360, height: 800 });
   await page.goto(`${origin}/track/${token}#approval=${approval}&item=shoe-fixture`);
-  await expect(page.getByText('Tautan sudah kedaluwarsa. Hubungi toko untuk meminta tautan baru.', { exact: false })).toBeVisible();
+  await expect(page.getByText('Persetujuan sudah kedaluwarsa. Hubungi toko. Pencucian tetap menunggu persetujuan Anda.', { exact: false })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Setujui Risiko & Lanjutkan', exact: true })).toHaveCount(0);
   await expect(page.getByText('Memiliki Token Persetujuan Terpisah?', { exact: true })).toHaveCount(0);
   await expect(page.getByLabel('Token Tindakan 64 Karakter')).toHaveCount(0);
@@ -334,7 +335,7 @@ for (const scenario of ['inspection', 'risk', 'final', 'partial', 'paid', 'refun
       await expect(shoes.nth(0).locator('.photos img')).toHaveCount(2);
       await expect(shoes.nth(1).locator(':scope > p')).toHaveText('Sepatu Tidak Dicuci dan Tidak Ada Biaya Cuci');
       await expect(shoes.nth(1).locator('.shoe-photos, .photos')).toHaveCount(0);
-      await expect(shoes.nth(1).locator('.timeline strong')).toHaveText('Tidak Dicuci · Menunggu Pengembalian');
+      await expect(shoes.nth(1).locator('.timeline strong')).toHaveText('Customer Menolak Untuk Dicuci');
       for (const history of await page.locator('.shoe-history').all()) await expect(history).toBeVisible();
       await expect(page.getByText(/Rincian biaya sepatu|Hasil inspeksi:|Penawaran /)).toHaveCount(0);
     }
@@ -368,10 +369,10 @@ for (const width of [320, 390, 1440]) test(`full WIB dates, truthful rejected hi
   await expect(rejected.getByRole('heading', { level: 2 })).toHaveText('adidas originals');
   await expect(rejected.locator('.eyebrow')).toHaveText('Sepatu 2 · cuci khusus');
   await expect(rejected.locator('.eyebrow')).toHaveCSS('text-transform', 'none');
-  await expect(rejected.locator('.badge')).toHaveAttribute('data-tone', 'amber');
+  await expect(rejected.locator('.badge')).toHaveAttribute('data-tone', 'red');
   await expect(ready.locator('.badge')).toHaveAttribute('data-tone', 'green');
   await expect(rejected.locator('.rejection')).toHaveText('Sepatu Tidak Dicuci dan Tidak Ada Biaya Cuci');
-  await expect(rejected.locator('.timeline strong')).toHaveText(['Sepatu Diterima', 'Pemeriksaan Selesai', 'Tidak Dicuci · Menunggu Pengembalian']);
+  await expect(rejected.locator('.timeline strong')).toHaveText(['Sepatu Diterima', 'Pemeriksaan Selesai', 'Pencucian Ditolak oleh Toko']);
   await expect(rejected.locator('.timeline time')).toHaveText(['Kamis, 12 November 2026 | 00.50 WIB.', 'Kamis, 12 November 2026 | 00.51 WIB.', 'Kamis, 12 November 2026 | 00.52 WIB.']);
   await expect(rejected.locator('[aria-current="step"]')).toHaveCount(1);
   await expect(rejected.getByText(/disetujui|Disetujui/)).toHaveCount(0);
@@ -484,7 +485,7 @@ for (const [outcome, fee] of [['REJECTED', 100], ['DECLINED', 100], ['APPROVED',
   Object.assign(state.order.items[0], { outcome, status: 'RETURN_PENDING', finalPriceIdr: fee, consents: [] });
   state.order.items = [state.order.items[0]];
   await page.goto(`${origin}/track/${token}`);
-  await expect(page.locator('.badge').last()).toHaveText('Tidak Dicuci');
+  await expect(page.locator('.badge').last()).toHaveText('Menunggu Pengembalian Sepatu');
   await expect(page.getByText('Sepatu Tidak Dicuci dan Tidak Ada Biaya Cuci', { exact: true })).toHaveCount(0);
   if (fee) {
     await expect(page.locator('.rejection')).toContainText(/Biaya cuci Rp\s*100\./);
@@ -512,10 +513,10 @@ for (const scenario of ['mixed-ready', 'all-return', 'completed', 'active']) tes
   await expect(status.locator('.completion')).toHaveCSS('font-size', '14px');
   await expect(status.locator('a')).toHaveCount(0);
   await expect(status).not.toContainText(/semua.*dicuci|selesai aktual:/i);
-  if (scenario === 'mixed-ready') await expect(status.locator('li')).toHaveText(['1 pasang sepatu selesai dicuci', '1 pasang sepatu tidak dicuci — tanpa biaya pencucian']);
-  if (scenario === 'all-return') await expect(status.locator('li')).toHaveText(['2 pasang sepatu tidak dicuci — tanpa biaya pencucian']);
-  if (scenario === 'completed') await expect(status.locator('li')).toHaveText(['1 pasang sepatu selesai dicuci', '1 pasang sepatu tidak dicuci — tanpa biaya pencucian']);
-  if (scenario === 'active') await expect(status.locator('li')).toHaveText(['2 pasang sepatu sedang dicuci']);
+  if (scenario === 'mixed-ready') await expect(status.locator('.progress-counts li')).toHaveText(['1 pasang sepatu selesai dicuci', '1 pasang sepatu tidak dicuci — tanpa biaya pencucian']);
+  if (scenario === 'all-return') await expect(status.locator('.progress-counts li')).toHaveText(['2 pasang sepatu tidak dicuci — tanpa biaya pencucian']);
+  if (scenario === 'completed') await expect(status.locator('.progress-counts li')).toHaveText(['1 pasang sepatu selesai dicuci', '1 pasang sepatu tidak dicuci — tanpa biaya pencucian']);
+  if (scenario === 'active') await expect(status.locator('.progress-counts li')).toHaveText(['2 pasang sepatu sedang dicuci']);
   await noOverflow(page); clean(state);
 });
 
@@ -535,8 +536,8 @@ for (const width of [320, 390, 1440]) test(`summary long amounts and statuses ${
 async function typography(page, scale = 1) {
   const violations = await page.locator('.tracking *:not(.online-note)').evaluateAll((nodes, scale) => nodes.filter(el => el.getClientRects().length && (el.childNodes.length === 0 || [...el.childNodes].some(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim()))).flatMap(el => {
     const style = getComputedStyle(el);
-    const expected = (el.matches('h1, .order-number') ? 24 : el.matches('h2') || (el.matches('h3') && !el.closest('.order-summary')) ? 18 : el.matches('.order-summary h3, .service-snapshot') ? 15 : el.matches('.summary-total dd') ? 28 : 14) * scale;
-    return Math.abs(parseFloat(style.fontSize) - expected) > .1 || Math.abs(parseFloat(style.lineHeight) - expected * 1.5) > .1 || style.textTransform !== 'none' || style.letterSpacing !== 'normal' ? [el.tagName + '.' + el.className + ': ' + style.fontSize + '/' + style.lineHeight] : [];
+    const expected = (el.matches('h1') ? 24 : el.matches('.order-number') ? 20 : el.matches('.last-refresh') ? 11 : el.matches('.refresh, .tracking-footer') ? 13 : el.matches('h2') || (el.matches('h3') && !el.closest('.order-summary')) ? 18 : el.matches('.order-summary h3, .service-snapshot') ? 15 : el.matches('.summary-total dd') ? 28 : 14) * scale;
+    return Math.abs(parseFloat(style.fontSize) - expected) > .1 || Math.abs(parseFloat(style.lineHeight) - expected * (el.matches('.tracking-footer') ? 1.6 : 1.5)) > .1 || style.textTransform !== 'none' || style.letterSpacing !== 'normal' ? [el.tagName + '.' + el.className + ': ' + style.fontSize + '/' + style.lineHeight] : [];
   }), scale);
   expect(violations).toEqual([]);
 }
@@ -583,37 +584,44 @@ test('summary groups actual stages, excludes returns before completed mapping; t
   await expect(page.locator('.service-snapshot')).not.toContainText(/pasang/i);
   await expect(page.locator('article').nth(9).locator('.badge')).toHaveText('Selesai Dikerjakan');
   await expect(page.locator('article').nth(10).locator('.timeline strong')).toHaveText('Sudah Diambil');
-  await expect(page.locator('article').nth(11).locator('.badge')).toHaveText('Tidak Dicuci');
-  await expect(page.locator('article').nth(12).locator('.timeline strong')).toHaveText('Tidak Dicuci · Dikembalikan');
+  await expect(page.locator('article').nth(11).locator('.badge')).toHaveText('Menunggu Pengembalian Sepatu');
+  await expect(page.locator('article').nth(12).locator('.timeline strong')).toHaveText('Sudah Dikembalikan');
   await noOverflow(page); clean(state);
 });
 
-test('public order badge uses four customer statuses', async ({ page }) => {
+test('public order badge follows aggregate status and payment ledger', async ({ page }) => {
   const state = await mockApi(page), item = state.order.items[0];
+  Object.assign(state.order, { aggregateStatus: 'WAITING_INSPECTION', refundDueIdr: 0, paidIdr: 0, balanceIdr: 45000 });
   state.order.items = [{ ...item, status: 'RECEIVED', outcome: null }];
   await page.goto(`${origin}/track/${token}`);
   const badge = page.getByLabel('Status Pesanan', { exact: true });
-  await expect(badge).toHaveText('Dalam Antrian');
-  await expect(badge).toHaveAttribute('data-tone', 'amber');
+  await expect(badge).toHaveText('Pemeriksaan');
+  await expect(badge).toHaveAttribute('data-tone', 'blue');
   state.order.items[0].status = 'WASHING';
+  state.order.aggregateStatus = 'IN_PROGRESS';
   await page.getByRole('button', { name: 'Perbarui Status' }).click();
-  await expect(badge).toHaveText('Proses Pengerjaan');
+  await expect(badge).toHaveText('Diproses');
   await expect(badge).toHaveAttribute('data-tone', 'blue');
   state.order.items[0].status = 'READY_FOR_PICKUP'; state.order.paymentStatus = 'UNPAID';
+  state.order.aggregateStatus = 'READY_FOR_PICKUP';
   await page.getByRole('button', { name: 'Perbarui Status' }).click();
-  await expect(badge).toHaveText('Selesai Dikerjakan');
-  await expect(badge).toHaveAttribute('data-tone', 'green');
+  await expect(badge).toHaveText('Menunggu Pelunasan');
+  await expect(badge).toHaveAttribute('data-tone', 'amber');
   state.order.paymentStatus = 'PAID';
+  state.order.balanceIdr = 0; state.order.paidIdr = 45000;
   await page.getByRole('button', { name: 'Perbarui Status' }).click();
   await expect(badge).toHaveText('Siap Diambil');
   await expect(badge).toHaveAttribute('data-tone', 'teal');
   state.order.items[0].status = 'HANDED_OVER';
+  state.order.aggregateStatus = 'COMPLETED';
   await page.getByRole('button', { name: 'Perbarui Status' }).click();
-  await expect(badge).toHaveText('Transaksi Selesai');
+  await expect(badge).toHaveText('Selesai');
   await expect(badge).toHaveAttribute('data-tone', 'green');
   state.order.paymentStatus = 'UNPAID';
+  state.order.refundDueIdr = 0;
+  state.order.paidIdr = 0;
   await page.getByRole('button', { name: 'Perbarui Status' }).click();
-  await expect(badge).toHaveText('Selesai Dikerjakan');
+  await expect(badge).toHaveText('Selesai');
   clean(state);
 });
 
@@ -621,25 +629,28 @@ for (const width of [320, 1440]) for (const scenario of ['ready-return', 'reject
   const state = await mockApi(page);
   state.order.number = 'CC-WORKMANSHIP';
   state.order.paymentStatus = 'UNPAID';
+  Object.assign(state.order, { refundDueIdr: 0, paidIdr: 0, balanceIdr: 45000 });
   const history = statuses => statuses.map((status, n) => ({ status, at: `2026-11-11T0${n + 1}:00:00Z` }));
   const shoe = (status, outcome, statuses = ['RECEIVED', status]) => ({ ...state.order.items[0], brand: 'Nike', model: '', status, outcome, consents: [], photos: [], timeline: history(statuses) });
   state.order.items = [shoe('READY_FOR_PICKUP', 'APPROVED', ['RECEIVED', 'QUEUED', 'WASHING', 'DRYING', 'READY_FOR_PICKUP']), { ...shoe('RETURN_PENDING', 'DECLINED', ['RECEIVED', 'AWAITING_CONSENT', 'RETURN_PENDING']), id: 'return', brand: 'Adidas' }];
   state.order.aggregateStatus = 'READY_FOR_PICKUP';
   if (scenario === 'rejected') state.order.items = [shoe('RETURNED', 'REJECTED', ['RECEIVED', 'RETURN_PENDING', 'RETURNED'])];
   if (scenario === 'declined') state.order.items = [shoe('RETURN_PENDING', 'DECLINED', ['RECEIVED', 'WASHING', 'DRYING', 'READY_FOR_PICKUP', 'RETURN_PENDING'])];
+  if (scenario === 'rejected') Object.assign(state.order, { aggregateStatus: 'COMPLETED', totalIdr: 0, balanceIdr: 0 });
+  if (scenario === 'declined') Object.assign(state.order, { aggregateStatus: 'RETURN_PENDING', totalIdr: 0, balanceIdr: 0 });
   if (scenario === 'handed-over') {
     state.order.aggregateStatus = 'COMPLETED';
     state.order.items = [shoe('HANDED_OVER', 'APPROVED', ['READY_FOR_PICKUP', 'HANDED_OVER']), { ...shoe('HANDED_OVER', 'DECLINED', ['RETURN_PENDING', 'HANDED_OVER']), id: 'historical-return' }];
   }
   const active = ['RECEIVED', 'INSPECTION', 'AWAITING_CONSENT', 'QUEUED', 'WASHING', 'DRYING', 'FINISHING', 'QC', 'REWORK'];
-  const activeLabels = ['Pemeriksaan', 'Pemeriksaan', 'Menunggu Persetujuan Customer', 'Pemeriksaan Selesai', 'Pengerjaan', 'Pengeringan', 'Pengeringan · Finishing', 'Pengeringan · Pemeriksaan Mutu', 'Pengerjaan · Ulang'];
+  const activeLabels = ['Dalam Antrian', 'Pemeriksaan', 'Menunggu Persetujuan Customer', 'Pemeriksaan Selesai', 'Pengerjaan', 'Pengeringan', 'Pengeringan · Finishing', 'Pengeringan · Pemeriksaan Mutu', 'Pengerjaan Ulang'];
   if (scenario === 'active') { state.order.aggregateStatus = 'IN_PROGRESS'; state.order.items = active.map((status, n) => ({ ...shoe(status, status === 'AWAITING_CONSENT' ? 'NEEDS_CONSENT' : 'APPROVED', [status]), id: `active-${n}` })); }
   await page.setViewportSize({ width, height: 900 });
   await page.goto(`${origin}/track/${token}`);
   const header = page.locator('.summary-info > .summary-heading'), badge = header.getByLabel('Status Pesanan');
   await expect(page.getByLabel('Status Pesanan', { exact: true })).toHaveCount(1);
   await expect(header.locator(':scope > h2 + .order-badge')).toHaveCount(1);
-  await expect(badge).toHaveText(scenario === 'active' ? 'Proses Pengerjaan' : 'Selesai Dikerjakan');
+  await expect(badge).toHaveText(scenario === 'active' ? 'Diproses' : ['handed-over', 'rejected'].includes(scenario) ? 'Selesai' : scenario === 'declined' ? 'Menunggu Pengembalian Sepatu' : 'Menunggu Pelunasan');
   await expect(page.locator('.order-identity .badge')).toHaveCount(0);
   await expect(page.locator('.payment-heading .payment-badge')).toHaveText('Belum Dibayar');
   await expect(header).toHaveCSS('flex-wrap', 'wrap');
@@ -651,24 +662,24 @@ for (const width of [320, 1440]) for (const scenario of ['ready-return', 'reject
   if (width === 1440) { expect(placement.sameLine).toBeLessThan(1); expect(placement.gap).toBeGreaterThanOrEqual(0); }
   const cards = page.locator('article');
   if (scenario === 'ready-return') {
-    await expect(cards.locator('.badge')).toHaveText(['Selesai Dikerjakan', 'Tidak Dicuci']);
-    await expect(cards.first().locator('.timeline strong')).toHaveText(['Sepatu Diterima', 'Pemeriksaan Selesai', 'Dalam Proses Pencucian', 'Dalam Proses Pengeringan', 'Selesai Dikerjakan']);
-    await expect(cards.nth(1).locator('.timeline strong')).toHaveText(['Sepatu Diterima', 'Menunggu Persetujuan Customer', 'Tidak Dicuci · Menunggu Pengembalian']);
+    await expect(cards.locator('.badge')).toHaveText(['Selesai Dikerjakan', 'Menunggu Pengembalian Sepatu']);
+    await expect(cards.first().locator('.timeline strong')).toHaveText(['Sepatu Diterima', 'Pemeriksaan Selesai', 'Proses Pencucian', 'Proses Pengeringan', 'Selesai Dikerjakan']);
+    await expect(cards.nth(1).locator('.timeline strong')).toHaveText(['Sepatu Diterima', 'Menunggu Persetujuan Customer', 'Tidak Dicuci']);
   } else if (scenario === 'rejected') {
-    await expect(cards.locator('.badge')).toHaveText('Tidak Dicuci');
-    await expect(cards.locator('.timeline strong')).toHaveText(['Sepatu Diterima', 'Tidak Dicuci · Menunggu Pengembalian', 'Tidak Dicuci · Dikembalikan']);
+    await expect(cards.locator('.badge')).toHaveText('Sudah Dikembalikan');
+    await expect(cards.locator('.timeline strong')).toHaveText(['Sepatu Diterima', 'Pencucian Ditolak oleh Toko', 'Sudah Dikembalikan']);
     await expect(cards.locator('.badge').filter({ hasText: 'Selesai Dikerjakan' })).toHaveCount(0);
   } else if (scenario === 'declined') {
-    await expect(cards.locator('.badge')).toHaveText('Tidak Dicuci');
+    await expect(cards.locator('.badge')).toHaveText('Menunggu Pengembalian Sepatu');
     // Preserve real past work/completion even when subsequently cancelled.
-    await expect(cards.locator('.timeline strong')).toHaveText(['Sepatu Diterima', 'Dalam Proses Pencucian', 'Dalam Proses Pengeringan', 'Selesai Dikerjakan', 'Tidak Dicuci · Menunggu Pengembalian']);
+    await expect(cards.locator('.timeline strong')).toHaveText(['Sepatu Diterima', 'Proses Pencucian', 'Proses Pengeringan', 'Selesai Dikerjakan', 'Tidak Dicuci']);
   } else if (scenario === 'handed-over') {
     await expect(cards.locator('.badge')).toHaveText(['Sudah Diambil', 'Sudah Diambil']);
     await expect(cards.first().locator('.timeline strong')).toHaveText(['Selesai Dikerjakan', 'Sudah Diambil']);
-    await expect(cards.nth(1).locator('.timeline strong')).toHaveText(['Tidak Dicuci · Menunggu Pengembalian', 'Sudah Diambil']);
+    await expect(cards.nth(1).locator('.timeline strong')).toHaveText(['Tidak Dicuci', 'Sudah Diambil']);
   } else {
     await expect(cards.locator('.badge')).toHaveText(activeLabels);
-    await expect(cards.locator('.timeline strong')).toHaveText(['Sepatu Diterima', 'Pemeriksaan Sepatu', 'Menunggu Persetujuan Customer', 'Pemeriksaan Selesai', 'Dalam Proses Pencucian', 'Dalam Proses Pengeringan', ...activeLabels.slice(6)]);
+    await expect(cards.locator('.timeline strong')).toHaveText(['Sepatu Diterima', 'Pemeriksaan Sepatu', 'Menunggu Persetujuan Customer', 'Pemeriksaan Selesai', 'Proses Pencucian', 'Proses Pengeringan', ...activeLabels.slice(6)]);
     await expect(cards.locator('.badge').filter({ hasText: 'Selesai Dikerjakan' })).toHaveCount(0);
   }
   await expect(cards.filter({ hasText: 'Siap Diambil' })).toHaveCount(0);

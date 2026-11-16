@@ -59,6 +59,7 @@ test('named catalog + intake HTTP isolated: roles/CSRF/validation, revision lock
   const plans = new Map<string, Row>(); const cache = new Map<string, Row>(); const services = new Map<string, Row>(); const audits: Row[] = [];
   const duplicate = () => { throw new Prisma.PrismaClientKnownRequestError('duplicate', { code: 'P2002', clientVersion: '6' }); };
   const fake = {
+    feedback: { findUnique: async () => null },
     session: { findUnique: async () => ({ user: { id: 'owner', role, isActive: true }, csrfToken: 'csrf', expiresAt: new Date('2100-01-01') }) },
     customer: { count: async () => 1 },
     user: { findUnique: async () => ({ isActive: true, role }) },

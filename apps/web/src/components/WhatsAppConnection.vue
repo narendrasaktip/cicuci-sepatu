@@ -38,6 +38,7 @@ async function refresh() {
 }
 async function command(name: string) {
   if (name === 'activate' && !connected.value) return;
+  if (name === 'activate' && !window.confirm('Aktifkan pengiriman WhatsApp nyata untuk event baru dengan persetujuan pelanggan? Risiko pembatasan akun tetap ada.')) return;
   if (name === 'disconnect' && !window.confirm('Putuskan WhatsApp dan hapus sesi toko? Pengiriman dinonaktifkan. Anda perlu menautkan ulang dengan QR.')) return;
   busy.value = true; error.value = ''; commandNotice.value = '';
   try {

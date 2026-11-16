@@ -8,11 +8,13 @@ for (const width of [320, 390, 1440]) test(`compact users, actions, search, Clas
     { id: 'staff-id-panjang', name: 'NamaPanjang'.repeat(10), email: 'emailpanjang'.repeat(8) + '@example.test', role: 'STAFF', isActive: false },
   ];
   const unexpected = [], mutations = [], queries = [];
-  await context.route('**/api/**', async route => {
+  await context.route('**/api/v1/**', async route => {
     const req = route.request(), url = new URL(req.url()), path = url.pathname.replace('/api/v1', '');
     let body;
     if (req.method() === 'GET' && path === '/auth/me') body = { user: users[0], csrfToken: 'fixture-only' };
+    else if (req.method() === 'GET' && path === '/whatsapp/status') body = { state: 'ready', ready: true, realSendEnabled: false };
     else if (req.method() === 'GET' && path === '/dashboard') body = {};
+    else if (req.method() === 'GET' && path === '/display-settings') body = {};
     else if (req.method() === 'GET' && path === '/orders') body = { data: [], page: { nextCursor: null } };
     else if (req.method() === 'GET' && path === '/users') {
       const q = url.searchParams.get('q') ?? ''; queries.push(q);
@@ -27,14 +29,13 @@ for (const width of [320, 390, 1440]) test(`compact users, actions, search, Clas
   });
   await page.setViewportSize({ width, height: 1000 });
   await page.goto(`${process.env.TEST_WEB_ORIGIN ?? 'http://127.0.0.1:5173'}/admin`);
-  await page.getByLabel('Tampilan', { exact: true }).selectOption('new');
+  await expect(page.getByLabel('Tampilan', { exact: true })).toHaveCount(0);
   const menu = page.getByRole('button', { name: 'Menu', exact: true });
   if (await menu.isVisible()) await menu.click();
   await page.getByRole('navigation').getByRole('button', { name: 'Pengguna', exact: true }).click();
   const table = page.locator('.user-table');
-  await expect(table.locator('thead th')).toHaveText(['ID', 'Nama', 'Email', 'Peran', 'Status', 'Aksi']);
-  await expect(table.locator('tbody td:first-child')).toHaveText(['…wner', '…jang']);
-  await expect(table.locator('tbody td:first-child span').last()).toHaveAttribute('title', 'staff-id-panjang');
+  await expect(table.locator('thead th')).toHaveText(['No.', 'Nama', 'Email', 'Peran', 'Status', 'Aksi']);
+  await expect(table.locator('tbody td:first-child')).toHaveText(['1', '2']);
   await expect(page.getByRole('button', { name: 'Pengguna Baru', exact: true })).toBeVisible();
   await expect(table.getByText('Detail teknis', { exact: true })).toHaveCount(0);
   await expect(table.getByRole('rowheader')).toHaveCount(2);
@@ -64,17 +65,18 @@ for (const width of [320, 390, 1440]) test(`compact users, actions, search, Clas
   const trash = page.getByRole('button', { name: `Hapus pengguna ${users[1].name}`, exact: true });
   expect(await trash.evaluate(el => el.closest('td') === el.closest('tr').lastElementChild)).toBe(true);
   await trash.click();
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page.getByRole('alert')).toContainText('USER_HAS_HISTORY');
-  await expect(page.getByRole('status')).toHaveCount(0);
+  await dialog.getByLabel('Ketik HAPUS untuk konfirmasi').fill('HAPUS');
+  await dialog.getByRole('button', { name: 'Hapus permanen', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('USER_HAS_HISTORY');
+  await dialog.getByRole('button', { name: 'Batal', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'USER_HAS_HISTORY' })).toHaveCount(0);
   await page.getByLabel('Cari Pengguna', { exact: true }).fill('owner@example.test');
   await page.getByRole('button', { name: 'Cari', exact: true }).click();
   await expect(table.getByRole('rowheader')).toHaveCount(1);
   expect(queries).toContain('owner@example.test');
-  await page.getByLabel('Tampilan', { exact: true }).selectOption('classic');
-  await expect(table).toHaveCount(0);
-  await expect(page.locator('.cards article')).toHaveCount(1);
-  await expect(page.getByRole('button', { name: 'Ubah akun / peran / password', exact: true })).toBeVisible();
+  await page.reload();
+  await page.getByRole('navigation').getByRole('button', { name: 'Pengguna', exact: true }).click();
+  await expect(table).toBeVisible();
   expect(mutations).toEqual([{ confirmed: true, confirmation: 'HAPUS' }]);
   expect(unexpected).toEqual([]);
 });

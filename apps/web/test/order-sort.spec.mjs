@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test';
 const origin = process.env.TEST_WEB_ORIGIN ?? 'http://127.0.0.1:5173';
 test('order headers toggle server sorting, retain filters and reset pagination', async ({ page }) => {
   const requests = [];
-  await page.route('**/api/**', async route => {
+  await page.route('**/api/v1/**', async route => {
     const url = new URL(route.request().url());
     let body = { data: [], page: { nextCursor: null } };
     if (url.pathname.endsWith('/auth/me')) body = { user: { id: 'fixture-owner', name: 'Fixture', role: 'OWNER' }, csrfToken: 'fixture' };
@@ -51,8 +51,8 @@ test('order headers toggle server sorting, retain filters and reset pagination',
   await expect(table.locator('td[data-label="Keuangan"] p br')).toHaveCount(1);
   for (const width of [320, 390, 768, 1024]) {
     await page.setViewportSize({ width, height: 900 });
-    await expect(page.locator('.topbar').getByRole('button', { name: 'Pesanan baru' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Pesanan baru' })).toHaveCount(1);
+    await expect(page.locator('.topbar').getByRole('button', { name: 'Pesanan Baru' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Pesanan Baru' })).toHaveCount(1);
     await expect(page.getByRole('heading', { name: 'Daftar Pesanan' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Cari', exact: true })).toBeVisible();
     const wrap = page.locator('.order-table');
@@ -61,8 +61,8 @@ test('order headers toggle server sorting, retain filters and reset pagination',
     await expect(table.getByRole('button', { name: 'Hapus pesanan CS-FIXTURE' })).toBeVisible();
     await expect(table.getByRole('button', { name: 'Status', exact: true })).toBeVisible();
   }
-  await page.getByRole('button', { name: 'Pesanan baru' }).click();
+  await page.getByRole('button', { name: 'Pesanan Baru' }).click();
   await expect(page.locator('.topbar').getByRole('button', { name: 'Batal' })).toBeVisible();
   await page.getByRole('button', { name: 'Batal' }).click();
-  await expect(page.getByRole('button', { name: 'Pesanan baru' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Pesanan Baru' })).toBeVisible();
 });

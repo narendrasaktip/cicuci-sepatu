@@ -3,10 +3,11 @@ import logo from '../assets/logo.webp';
 import { handoverLabels } from '../services/domain';
 import { computed, nextTick, onMounted, ref } from 'vue';
 import { api } from '../services/auth';
-import { statusName, trackingPrice, trackingPriceLines, trackingDuration, pricingName, labels, money, type Item, type Order } from '../services/domain';
+import { adminOrderStatus, orderStatusCode, orderStatusTone, statusName, trackingPrice, trackingPriceLines, trackingDuration, pricingName, labels, money, type Item, type TrackingOrder } from '../services/domain';
 import ActionDialog from './ActionDialog.vue';
 const props = defineProps<{ token: string }>();
-const order = ref<Order>(); const error = ref(''); const busy = ref(false); const notice = ref('');
+const order = ref<TrackingOrder>(); const error = ref(''); const busy = ref(false); const notice = ref('');
+const updatedAt = ref('');
 const estimatedPrice = computed(() => order.value?.pricing ? order.value.pricing.stage === 'ESTIMATE' : order.value?.items.some(i => !i.outcome || i.status === 'AWAITING_CONSENT'));
 const commonService = computed(() => order.value?.items.length && order.value.items.every(i => i.serviceName === order.value!.items[0]!.serviceName) ? order.value.items[0]!.serviceName : '');
 const excluded = (item: Item) => ['REJECTED', 'DECLINED'].includes(item.outcome ?? '') || ['RETURN_PENDING', 'RETURNED'].includes(item.status);
@@ -34,11 +35,7 @@ const duration = computed(() => order.value ? trackingDuration(order.value) : ''
 const orderDisplayStatus = computed(() => {
   const current = order.value;
   if (!current) return { label: '', tone: 'blue' };
-  const done = current.items.every(item => ['READY_FOR_PICKUP', 'HANDED_OVER', 'RETURN_PENDING', 'RETURNED'].includes(item.status));
-  if (current.items.length && current.paymentStatus === 'PAID' && current.items.every(item => ['HANDED_OVER', 'RETURNED'].includes(item.status))) return { label: 'Transaksi Selesai', tone: 'green' };
-  if (done && current.paymentStatus === 'PAID' && current.items.some(item => ['READY_FOR_PICKUP', 'RETURN_PENDING'].includes(item.status))) return { label: 'Siap Diambil', tone: 'teal' };
-  if (done) return { label: 'Selesai Dikerjakan', tone: 'green' };
-  return current.items.every(item => item.status === 'RECEIVED') ? { label: 'Dalam Antrian', tone: 'amber' } : { label: 'Proses Pengerjaan', tone: 'blue' };
+  return { label: adminOrderStatus(current), tone: orderStatusTone(orderStatusCode(current)) };
 });
 const activePairs = computed(() => order.value?.items.filter(item => !excluded(item) && !['READY_FOR_PICKUP', 'HANDED_OVER'].includes(item.status)).length ?? 0);
 const progressCounts = computed(() => {
@@ -56,8 +53,12 @@ const consentItemId = ref('');
 let consentTrigger: HTMLButtonElement | undefined;
 function openConsent(event: MouseEvent, itemId: string, value: 'APPROVE' | 'DECLINE') { consentTrigger = event.currentTarget as HTMLButtonElement; consentItemId.value = itemId; decision.value = value; }
 async function closeConsent() { decision.value = undefined; await nextTick(); if (consentTrigger?.isConnected) consentTrigger.focus(); else document.querySelector<HTMLButtonElement>('.tracking .refresh')?.focus(); }
-async function load() { busy.value = true; error.value = ''; try { order.value = await api<Order>(`/track/${props.token}`, 'GET', undefined, true); } catch (e) { order.value = undefined; error.value = e instanceof Error ? e.message : 'Pelacakan gagal.'; } finally { busy.value = false; } }
-onMounted(load);
+async function load() { busy.value = true; error.value = ''; try { order.value = await api<TrackingOrder>(`/track/${props.token}`, 'GET', undefined, true); updatedAt.value = new Date().toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit' }) + ' WIB'; } catch (e) { order.value = undefined; error.value = e instanceof Error ? e.message : 'Pelacakan gagal.'; } finally { busy.value = false; } }
+onMounted(() => {
+  // Legacy consent fragments contain bearer tokens; current consent uses itemId.
+  if (new URLSearchParams(window.location.hash.slice(1)).has('approval')) window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
+  return load();
+});
 async function consent() { if (!decision.value || !consentItemId.value) return; await api(`/track/${props.token}/consent`, 'POST', { itemId: consentItemId.value, decision: decision.value }, true); notice.value = 'Keputusan tersimpan.'; consentItemId.value = ''; decision.value = undefined; await load(); }
 // Only presentation-owned labels: never title-case customer text or identifiers.
 function label(value: string) {
@@ -73,15 +74,19 @@ function publicStatusName(context: string, status: string, fallback = label(stat
 }
 function customerDeclined(item: Item) { return item.consents.some(consent => consent.decision === 'DECLINE'); }
 function shoeLabel(item: Item) {
-  const overrides: Record<string, string> = { READY_FOR_PICKUP: 'Selesai Dikerjakan', RETURN_PENDING: 'Tidak Dicuci', RETURNED: 'Tidak Dicuci', REJECTED: 'Tidak Dicuci', DECLINED: 'Tidak Dicuci' };
+  if (item.status === 'READY_FOR_PICKUP') return 'Selesai Dikerjakan';
+  if (item.status === 'RETURN_PENDING') return 'Menunggu Pengembalian Sepatu';
+  if (item.status === 'RETURNED') return 'Sudah Dikembalikan';
+  const overrides: Record<string, string> = { REJECTED: 'Tidak Dicuci', DECLINED: 'Tidak Dicuci' };
   return publicStatusName('shoe', item.status, overrides[item.status] ?? label(item.status));
 }
 function historyLabel(item: Item, status: string) {
+  if (status === 'READY_FOR_PICKUP') return 'Selesai Dikerjakan';
+  if (status === 'RETURNED') return 'Sudah Dikembalikan';
   if (status === 'RETURN_PENDING' && customerDeclined(item)) return 'Customer Menolak Untuk Dicuci';
   if (status === 'RETURN_PENDING' && item.outcome === 'REJECTED') return 'Pencucian Ditolak oleh Toko';
   const overrides: Record<string, string> = { RECEIVED: 'Sepatu Diterima', INSPECTION: 'Pemeriksaan Sepatu', WASHING: 'Dalam Proses Pencucian', DRYING: 'Dalam Proses Pengeringan', READY_FOR_PICKUP: 'Selesai Dikerjakan', RETURN_PENDING: 'Tidak Dicuci', RETURNED: 'Tidak Dicuci' };
   const name = publicStatusName('history', status, overrides[status] ?? label(status));
-  if (status === 'READY_FOR_PICKUP' && name === 'Selesai Dikerjakan') return 'Siap Diambil';
   return ['WASHING', 'DRYING'].includes(status) ? name.replace(/^Dalam Proses /, 'Proses ') : name;
 }
 function rejectionReason(item: Item) {
@@ -158,6 +163,10 @@ function closePhoto() {
         <p class="order-number">
           {{ order.number }}
         </p>
+        <small
+          v-if="updatedAt"
+          class="last-refresh"
+        >Diperbarui {{ updatedAt }}</small>
       </div>
       <button
         class="secondary refresh"
@@ -498,6 +507,12 @@ function closePhoto() {
           </section>
         </div>
       </article>
+      <p
+        v-if="!order.feedback && order.feedbackEligible === true"
+        class="panel"
+      >
+        <a :href="`/feedback/${encodeURIComponent(token)}`">Berikan Ulasan</a>
+      </p>
     </template>
     <dialog
       ref="photoDialog"
@@ -533,6 +548,9 @@ function closePhoto() {
       :submit="consent"
       @close="closeConsent"
     />
+    <footer class="tracking-footer">
+      © {{ new Date().getFullYear() }} Cicuci Sepatu
+    </footer>
   </main>
 </template>
 
@@ -540,16 +558,18 @@ function closePhoto() {
 /* Isolated public presentation, including child dialogs; rem preserves text zoom. */
 .tracking, .tracking :deep(*) { font-size: .875rem; line-height: 1.5; letter-spacing: normal; text-transform: none; }
 .tracking h1 { font-size: 1.5rem; }
+.tracking .tracking-footer { padding: 12px 0 16px; text-align: center; color: #415f7d; font-size: .8125rem; font-weight: 500; line-height: 1.6; }
 .tracking h2, .tracking h3, .tracking :deep(dialog h2), .tracking :deep(dialog h3) { font-size: 1.125rem; }
 .tracking .summary-total dd { font-size: 1.75rem; }
-.tracking { --brand: #1768ba; --ink: #182c49; --muted: #56677e; --line: #dce3ec; width: 100%; min-height: 100dvh; margin: 0; padding: 1rem max(1rem, calc((100% - 900px) / 2)); background: #f4f6fa; color: var(--ink); overflow-wrap: anywhere; line-height: 1.5; }
-.tracking-header { display: flex; align-items: center; gap: 1rem; padding: .5rem 1rem; margin: 0 0 .5rem; border-bottom: 1px solid var(--line); background: #fff; color: #152b49; }
+.tracking { --brand: #1768ba; --ink: #182c49; --muted: #56677e; --line: #dce3ec; width: 100%; min-height: 100dvh; margin: 0; padding: 1rem max(1rem, calc((100% - 900px) / 2)); background: linear-gradient(145deg, #f7fbff, #e5f2ff); color: var(--ink); overflow-wrap: anywhere; line-height: 1.5; }
+.tracking-header { display: flex; align-items: center; gap: 1rem; padding: .5rem 1rem; margin: 0 0 .5rem; border: 1px solid var(--line); border-radius: 16px; background: #fff; color: #152b49; }
 .tracking-brand { display: block; width: 96px; flex-shrink: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .tracking-brand img { display: block; width: 100%; height: auto; object-fit: contain; }
 .tracking .tracking-header h1 { margin: 0; letter-spacing: normal; }
 .tracking .order-identity { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: 1rem; }
 .tracking .order-identity > div { min-width: 0; flex: 1 1 180px; }
 .tracking .order-identity .refresh { padding-inline: .6rem; font-size: .8125rem; }
+.tracking .last-refresh { display: block; white-space: nowrap; font-size: .6875rem; }
 .tracking .order-number { margin: 0; font-size: 1.25rem; font-weight: 700; }
 .tracking .panel.order-summary { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; margin: 0 0 1rem; padding: 0; overflow: hidden; }
 .tracking .order-summary > section { min-width: 0; padding: 1rem; }
@@ -635,7 +655,7 @@ function closePhoto() {
 .tracking .badge[data-tone=amber] { color: #79520b; background: #fff5db; border-color: #e8d39d; }
 .tracking .badge[data-tone=green] { color: #176044; background: #eaf7ef; border-color: #b7dac5; }
 .tracking .badge[data-tone=teal] { color: #075d64; background: #d9f3f2; border-color: #8accc9; }
-.tracking .badge[data-tone=gray] { color: #4f6075; background: #f0f3f6; border-color: #cdd6e0; }
+.tracking .badge[data-tone=gray], .tracking .badge[data-tone=slate] { color: #4f6075; background: #f0f3f6; border-color: #cdd6e0; }
 .tracking .badge[data-tone=red], .tracking .rejection { color: #9b3030; }
 .tracking .badge[data-tone=red] { background: #fff0ef; border-color: #e8c2be; }
 .tracking .timeline { border-color: var(--line); margin: .9rem .35rem 0; padding-left: 1rem; }

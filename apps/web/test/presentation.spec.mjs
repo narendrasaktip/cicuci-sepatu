@@ -6,7 +6,7 @@ const origin = process.env.TEST_WEB_ORIGIN ?? 'http://127.0.0.1:5173';
 const order = { id: 'fixture-order', number: 'CS-PRESENTATION', customer: { name: 'Pelanggan Contoh' }, aggregateStatus: 'IN_PROGRESS', estimatedCompletionAt: '2026-12-01T00:00:00Z', totalIdr: 90000, balanceIdr: 45000, paymentStatus: 'PARTIAL', itemCount: 2 };
 async function mock(context, role = 'OWNER') {
   const state = { calls: [], unexpected: [], empty: false, fail: false, hold: null };
-  await context.route('**/api/**', async route => {
+  await context.route('**/api/v1/**', async route => {
     const request = route.request(); const url = new URL(request.url()); const path = url.pathname;
     state.calls.push(path + url.search);
     let body;
@@ -49,11 +49,11 @@ test('new only despite stored classic preference; forms and reload remain usable
   await noOverflow(page); await page.screenshot({ path: info.outputPath('new-dashboard-desktop.png'), fullPage: true });
   await page.reload(); await expect(page.locator('.theme-new')).toBeVisible();
   await navigate(page, 'Pesanan'); await page.getByLabel('Cari', { exact: true }).fill('Contoh');
-  await page.getByRole('button', { name: 'Terapkan / muat ulang' }).click();
-  await expect(page.getByRole('button', { name: 'Terapkan / muat ulang' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Cari', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Cari', exact: true })).toBeEnabled();
   expect(state.calls.some(call => call.includes('q=Contoh'))).toBe(true);
   const sort = page.getByRole('columnheader', { name: /Pelanggan/ }); await sort.getByRole('button').click(); await expect(sort).toHaveAttribute('aria-sort', 'ascending');
-  await page.getByRole('button', { name: 'Pesanan baru', exact: true }).click();
+  await page.getByRole('button', { name: 'Pesanan Baru', exact: true }).click();
   await expect(page.getByRole('radiogroup', { name: 'Jenis pelanggan' })).toBeVisible();
   await page.getByRole('button', { name: 'Batal', exact: true }).click();
   expect(errors).toEqual([]); expect(state.unexpected).toEqual([]);
@@ -64,14 +64,17 @@ for (const width of [1440, 768, 760, 390, 320]) {
     const state = await mock(context); await page.setViewportSize({ width, height: 950 }); await page.goto(`${origin}/admin`);
     await navigate(page, 'Pesanan');
     await expect(page.getByRole('button', { name: 'CS-PRESENTATION', exact: true })).toBeVisible(); await noOverflow(page);
-    const region = page.getByRole('region', { name: 'Daftar pesanan, geser untuk kolom lainnya' });
+    const region = page.getByRole('region', { name: 'Daftar pesanan', exact: true });
     await page.keyboard.press('Tab'); await region.focus(); await expect(region).toBeFocused();
     expect(await region.evaluate(el => getComputedStyle(el).outlineStyle)).not.toBe('none');
     if (width <= 760) {
-      const menu = page.getByRole('button', { name: 'Menu', exact: true }); await expect(menu).toHaveAttribute('aria-expanded', 'false');
-      await menu.focus(); await page.keyboard.press('Enter'); await expect(menu).toHaveAttribute('aria-expanded', 'true');
-      await page.keyboard.press('Tab'); await page.keyboard.press('Escape'); await expect(menu).toBeFocused(); await expect(menu).toHaveAttribute('aria-expanded', 'false');
-      if (width < 760) { await region.evaluate(el => { el.scrollLeft = el.scrollWidth; }); expect(await region.evaluate(el => el.scrollLeft)).toBeGreaterThan(0); }
+      const menu = page.getByRole('button', { name: 'Ringkas menu', exact: true }); await expect(menu).toHaveAttribute('aria-expanded', 'true');
+      await menu.focus(); await page.keyboard.press('Enter'); await expect(page.getByRole('button', { name: 'Perluas menu', exact: true })).toHaveAttribute('aria-expanded', 'false');
+      await page.keyboard.press('Enter'); await expect(menu).toHaveAttribute('aria-expanded', 'true');
+      if (width < 760) {
+        const scrolling = await region.evaluate(el => { el.scrollLeft = el.scrollWidth; return { left: el.scrollLeft, overflow: el.scrollWidth - el.clientWidth }; });
+        expect(scrolling.left).toBe(Math.max(0, scrolling.overflow));
+      }
     }
     await page.screenshot({ path: info.outputPath(`new-orders-${width}.png`), fullPage: true }); expect(state.unexpected).toEqual([]);
   });
@@ -81,13 +84,13 @@ test('loading, empty, error and recovery use intercepted data', async ({ page, c
   const state = await mock(context); await page.goto(`${origin}/admin`);
   await expect(page.getByRole('button', { name: 'CS-PRESENTATION', exact: true })).toBeVisible();
   let release; state.hold = new Promise(resolve => { release = resolve; });
-  await page.getByRole('button', { name: 'Terapkan / muat ulang' }).click(); await expect(page.getByText('Memuat data…', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Cari', exact: true }).click(); await expect(page.getByText('Memuat data…', { exact: true })).toBeVisible();
   release(); state.hold = null; await expect(page.getByText('Memuat data…', { exact: true })).toHaveCount(0);
-  state.empty = true; await page.getByRole('button', { name: 'Terapkan / muat ulang' }).click(); await expect(page.locator('.empty-state')).toBeVisible();
+  state.empty = true; await page.getByRole('button', { name: 'Cari', exact: true }).click(); await expect(page.locator('.empty-state')).toBeVisible();
   await page.screenshot({ path: info.outputPath('new-empty.png'), fullPage: true });
-  state.fail = true; await page.getByRole('button', { name: 'Terapkan / muat ulang' }).click(); await expect(page.getByRole('alert')).toContainText('FIXTURE_UNAVAILABLE');
+  state.fail = true; await page.getByRole('button', { name: 'Cari', exact: true }).click(); await expect(page.getByRole('alert')).toContainText('FIXTURE_UNAVAILABLE');
   await page.screenshot({ path: info.outputPath('new-error.png'), fullPage: true });
-  state.fail = false; state.empty = false; await page.getByRole('button', { name: 'Terapkan / muat ulang' }).click(); await expect(page.getByRole('alert')).toHaveCount(0); await expect(page.getByRole('button', { name: 'CS-PRESENTATION', exact: true })).toBeVisible(); expect(state.unexpected).toEqual([]);
+  state.fail = false; state.empty = false; await page.getByRole('button', { name: 'Cari', exact: true }).click(); await expect(page.getByRole('alert')).toHaveCount(0); await expect(page.getByRole('button', { name: 'CS-PRESENTATION', exact: true })).toBeVisible(); expect(state.unexpected).toEqual([]);
 });
 
 test('staff permissions unchanged; browser storage unnecessary', async ({ page, context }) => {
@@ -121,7 +124,7 @@ for (const role of ['OWNER', 'ADMIN', 'STAFF']) test(`advanced legacy services a
   if (role !== 'STAFF') {
     await navigate(page, 'WhatsApp');
     expect(state.calls.some(c => c.startsWith('/api/v1/notifications'))).toBe(false);
-    await page.getByText('Riwayat pengiriman', { exact: true }).click();
+    await page.getByRole('navigation', { name: 'Bagian WhatsApp' }).getByRole('button', { name: 'Riwayat Pengiriman', exact: true }).click();
     await expect(page.getByText('fixture-only', { exact: false })).toBeVisible();
     await page.getByText('Percobaan (1)', { exact: true }).click();
     await expect(page.locator('pre')).toContainText('"actualOutbound": false');

@@ -4,10 +4,12 @@ import { api, type User } from '../services/auth';
 import { money, turnaroundText, type TurnaroundPolicy, type RatePlan, type RateRule } from '../services/domain';
 import PricingPreview from './PricingPreview.vue';
 import OutlineIcon from './OutlineIcon.vue';
+import { useUnsavedChanges } from '../services/unsaved';
 const newPresentation = inject('newPresentation', ref(false));
 const props = defineProps<{ role: User['role'] }>();
 async function deletePlan(plan: RatePlan) {
   if (busy.value || props.role !== 'OWNER') return;
+  if (window.prompt(`Hapus tarif ${plan.name} permanen. Tidak dapat dibatalkan. Ketik HAPUS untuk konfirmasi.`) !== 'HAPUS') return;
   busy.value = true; error.value = '';
   try {
     await api(`/pricing/plans/${plan.id}`, 'DELETE', { confirmed: true, confirmation: 'HAPUS' });
@@ -18,6 +20,7 @@ async function deletePlan(plan: RatePlan) {
 const plans = ref<RatePlan[]>([]); const loading = ref(false); const busy = ref(false); const error = ref('');
 const draft = ref<{ name: string; isActive: boolean; turnaroundPolicy: TurnaroundPolicy; rules: RateRule[] }>(); const editing = ref<RatePlan>(); const pairs = ref(1);
 const editor = ref<HTMLDialogElement | HTMLDivElement>();
+useUnsavedChanges(computed(() => !!draft.value));
 let opener: HTMLElement | null = null;
 function trapEditorFocus(event: KeyboardEvent) {
   if (!newPresentation.value || event.key !== 'Tab') return;
@@ -33,6 +36,7 @@ watchPostEffect(() => {
 onBeforeUnmount(() => { if (editor.value instanceof HTMLDialogElement) editor.value.close(); });
 function closeEditor() {
   if (busy.value) return;
+  if (draft.value && !window.confirm('Tutup editor tanpa menyimpan perubahan tarif?')) return;
   if (editor.value instanceof HTMLDialogElement) editor.value.close();
   draft.value = undefined;
 }
@@ -57,6 +61,15 @@ function edit(plan?: RatePlan) {
   draft.value = plan ? { name: plan.name, isActive: plan.isActive, turnaroundPolicy: plan.turnaroundPolicy ?? 'REGULAR', rules: plan.rules.map(r => ({ ...r })) } : { name: '', isActive: true, turnaroundPolicy: 'REGULAR', rules: [{ kind: 'PACKAGE', minPairs: 1, maxPairs: 1, priceIdr: 1 }] };
 }
 function changeKind(rule: RateRule) { rule.maxPairs = rule.kind === 'PACKAGE' ? rule.minPairs : null; }
+async function toggleActive(plan: RatePlan) {
+  if (props.role !== 'OWNER' || busy.value || loading.value) return;
+  busy.value = true; error.value = '';
+  try {
+    const updated = await api<RatePlan>(`/pricing/plans/${encodeURIComponent(plan.id)}`, 'PATCH', { name: plan.name, isActive: !plan.isActive, turnaroundPolicy: plan.turnaroundPolicy ?? 'REGULAR', rules: plan.rules, revision: plan.revision });
+    plans.value = plans.value.map(value => value.id === updated.id ? updated : value);
+  } catch (e) { error.value = e instanceof Error ? e.message : 'Status tarif gagal diubah.'; }
+  finally { busy.value = false; }
+}
 async function save() {
   if (props.role !== 'OWNER' || busy.value || !draft.value || validation.value) return;
   busy.value = true; error.value = '';
@@ -81,6 +94,7 @@ onMounted(load);
         Tarif pesanan · 1 item = 1 pasang. Pilih satu tarif aktif untuk seluruh pesanan. Perubahan tidak mengubah snapshot pesanan lama.
       </p>
       <Teleport
+        defer
         :disabled="!newPresentation"
         to="#rate-header-actions"
       >
@@ -207,6 +221,15 @@ onMounted(load);
                 <button
                   type="button"
                   class="secondary"
+                  :aria-label="`${plan.isActive ? 'Nonaktifkan' : 'Aktifkan'} tarif ${plan.name}`"
+                  :disabled="busy || loading"
+                  @click="toggleActive(plan)"
+                >
+                  {{ plan.isActive ? 'Nonaktifkan' : 'Aktifkan' }}
+                </button>
+                <button
+                  type="button"
+                  class="secondary"
                   :aria-label="`Ubah tarif ${plan.name}`"
                   :disabled="busy"
                   @click="edit(plan)"
@@ -248,6 +271,16 @@ onMounted(load);
           Hapus tarif
         </button>
         <h3>{{ plan.name }}</h3><p>{{ plan.isActive ? 'Aktif' : 'Nonaktif' }}</p>
+        <button
+          v-if="role === 'OWNER'"
+          type="button"
+          class="secondary"
+          :aria-label="`${plan.isActive ? 'Nonaktifkan' : 'Aktifkan'} tarif ${plan.name}`"
+          :disabled="busy || loading"
+          @click="toggleActive(plan)"
+        >
+          {{ plan.isActive ? 'Nonaktifkan' : 'Aktifkan' }}
+        </button>
         <p>{{ turnaroundText(plan.turnaroundPolicy) }}</p>
         <ul>
           <li
@@ -388,6 +421,23 @@ onMounted(load);
             step="1"
             required
           ></label>
+          <div
+            class="actions"
+            role="group"
+            aria-label="Contoh jumlah pasang"
+          >
+            <button
+              v-for="count in [1, 2, 3, 6]"
+              :key="count"
+              type="button"
+              class="secondary"
+              :aria-pressed="pairs === count"
+              @click="pairs = count"
+            >
+              {{ count }} Pasang
+            </button>
+          </div>
+          <p>Perubahan tarif dan status aktif hanya berlaku untuk pesanan baru. Harga tersimpan pada pesanan lama tidak berubah.</p>
           <PricingPreview
             v-if="!validation && Number.isInteger(pairs) && pairs > 0 && pairs <= 50"
             :rules="draft.rules"

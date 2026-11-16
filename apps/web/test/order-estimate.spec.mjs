@@ -7,7 +7,7 @@ for (const timezoneId of ['Asia/Jakarta', 'America/Los_Angeles']) {
     for (const mode of ['existing', 'new']) test(`${mode} customer: no date, retained form and stable retry keys`, async ({ page }) => {
       let customerPosts = 0; const submissions = []; const keys = [];
       const customer = { id: 'customer', name: 'Fixture', whatsapp: '+628111111111' };
-      await page.route('**/api/**', async route => {
+      await page.route('**/api/v1/**', async route => {
         const request = route.request(); const url = new URL(request.url());
         let body = { data: [], page: { nextCursor: null } };
         if (url.pathname.endsWith('/auth/me')) body = { user: { id: 'owner', name: 'Fixture', role: 'OWNER' }, csrfToken: 'fixture' };
@@ -27,20 +27,20 @@ for (const timezoneId of ['Asia/Jakarta', 'America/Los_Angeles']) {
       });
       await page.goto(`${process.env.TEST_WEB_ORIGIN ?? 'http://127.0.0.1:5173'}/admin`);
       await page.getByRole('navigation', { name: 'Navigasi utama' }).getByRole('button', { name: 'Pesanan', exact: true }).click();
-      await page.getByRole('button', { name: 'Pesanan baru', exact: true }).click();
+       await page.getByRole('button', { name: 'Pesanan Baru', exact: true }).click();
       await expect(page.locator('input[type="datetime-local"], input[type="date"]')).toHaveCount(0);
-      await page.getByLabel('Tarif pesanan').selectOption('plan');
+       await page.getByRole('group', { name: 'Tarif dan estimasi' }).getByRole('combobox').selectOption('plan');
       await expect(page.getByText('Estimasi selesai otomatis:', { exact: false })).toContainText('5 hari kalender');
       await expect(page.getByText('Estimasi selesai otomatis:', { exact: false })).toContainText('12.00 WIB');
       if (mode === 'new') {
-        await page.getByLabel('Pelanggan baru', { exact: true }).check();
+         await page.getByLabel('Pelanggan Baru', { exact: true }).check();
         await page.getByLabel('Nama *', { exact: true }).fill('Fixture');
         await page.getByLabel('Nomor WhatsApp *', { exact: true }).fill('081111111111');
       } else {
         await page.getByLabel('Cari pelanggan').fill('Fixture');
         await page.getByRole('button', { name: 'Fixture · +628111111111', exact: true }).click();
       }
-      await page.getByLabel('Tarif pesanan').selectOption('plan');
+       await page.getByRole('group', { name: 'Tarif dan estimasi' }).getByRole('combobox').selectOption('plan');
       const shoe = page.getByRole('group', { name: 'Sepatu 1', exact: true });
       await shoe.getByLabel('Merek *', { exact: true }).fill('Nike');
       await expect(shoe.getByLabel('Merek *', { exact: true })).toHaveAttribute('required', '');

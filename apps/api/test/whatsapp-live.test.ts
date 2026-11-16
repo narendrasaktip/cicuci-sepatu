@@ -29,15 +29,17 @@ test('owner/CSRF/Origin boundaries; provider claims, consent, mock isolation and
     const activation = randomUUID();
     const real = { activation, ready: true, send: async () => { calls++; return fakeSend(); } };
     async function event(provider: string, extra: object = {}) {
-      const e = await db.notificationEvent.create({ data: { eventKey: randomUUID(), orderId, recipient: customer.whatsapp, optedIn: true, template: 'TEST', message: 'fake only', provider, activation, nextAttemptAt: new Date(Date.now() + 3600000), ...extra } }); events.push(e.id); return e;
+      const e = await db.notificationEvent.create({ data: { eventKey: randomUUID(), orderId, recipient: customer.whatsapp, optedIn: true, template: 'TEST', message: 'fake only', encryptedMessage: seal({ message: 'fake only', trackingHash: hashToken(tracking) }), provider, activation, nextAttemptAt: new Date(Date.now() + 3600000), ...extra } }); events.push(e.id); return e;
     }
     // Readiness is injected in this process only; no worker commands or real activation.
     const { controlRedis, sign } = await import('../src/lib/whatsapp-control.js');
     const { notify } = await import('../src/services/orders.js');
+    const { seal } = await import('../src/services/whatsapp-templates.js');
+    const tracking = randomToken();
+    await db.order.update({ where: { id: orderId }, data: { trackingHash: hashToken(tracking), trackingSecret: seal(tracking) } });
     const redis = controlRedis();
-    let payload = JSON.stringify({ ready:true, realSendEnabled:true, activation, updatedAt:Date.now() });
-    const get = mock.method(redis, 'get', async () => JSON.stringify({payload,signature:await sign(payload)}));
-    const exists = mock.method(redis, 'exists', async () => 1);
+    let payload = JSON.stringify({ workerId: prefix, state: 'ready', ready:true, realSendEnabled:true, activation, updatedAt:Date.now() });
+    const mget = mock.method(redis, 'mget', async () => [JSON.stringify({payload,signature:await sign(payload)}), prefix]);
     const rollback = new Error('ROLLBACK_TEST_ONLY');
     try {
       await assert.rejects(db.$transaction(async tx => {
@@ -47,13 +49,16 @@ test('owner/CSRF/Origin boundaries; provider claims, consent, mock isolation and
         const attempt = await tx.notificationAttempt.findFirstOrThrow({where:{eventId:blocked.id}});
         assert.deepEqual(attempt.response,{reason:'NOT_ENABLED',generation:0,actualOutbound:false,delivery:'skipped'});
         await tx.storeSettings.update({where:{id:1},data:{waActivation:activation}});
-        const queued = await notify(tx, orderId, 'TEST', randomUUID()); assert.equal(queued.status,'PENDING'); assert.equal(queued.activation,activation);
-        payload = JSON.stringify({ready:false,realSendEnabled:false,activation,updatedAt:Date.now()});
+        await tx.order.update({ where: { id: orderId }, data: { trackingHash: hashToken(tracking), trackingSecret: seal(tracking) } });
+        const queued = await notify(tx, orderId, 'ORDER_RECEIVED', randomUUID());
+        const queuedAttempt = await tx.notificationAttempt.findFirst({ where: { eventId: queued.id }, select: { response: true } });
+        assert.equal(queued.status,'PENDING', JSON.stringify(queuedAttempt?.response)); assert.equal(queued.activation,activation);
+        payload = JSON.stringify({workerId:prefix,state:'disconnected',ready:false,realSendEnabled:false,activation,updatedAt:Date.now()});
         const disconnected = await notify(tx, orderId, 'TEST', randomUUID()); assert.equal(disconnected.status,'SKIPPED');
         assert.equal((await tx.notificationAttempt.findFirstOrThrow({where:{eventId:disconnected.id}})).response && JSON.stringify((await tx.notificationAttempt.findFirstOrThrow({where:{eventId:disconnected.id}})).response).includes('PROVIDER_NOT_READY'),true);
         throw rollback;
       }), error => error === rollback);
-    } finally { get.mock.restore(); exists.mock.restore(); await redis.quit(); }
+    } finally { mget.mock.restore(); await redis.quit(); }
     const historical = await event('mock'); await deliverNotification(historical.id, 0, real); assert.equal(calls, 0); assert.equal((await db.notificationEvent.findUniqueOrThrow({ where: { id: historical.id } })).status, 'PENDING'); assert.equal(await db.notificationAttempt.count({where:{eventId:historical.id}}),0);
     const simulated = await event('mock', {status:'SIMULATED'}); const before = await db.notificationEvent.findUniqueOrThrow({where:{id:simulated.id},include:{attempts:true}}); await deliverNotification(simulated.id,0,real); assert.deepEqual(await db.notificationEvent.findUniqueOrThrow({where:{id:simulated.id},include:{attempts:true}}),before);
     const old = await event('whatsapp-web.js', { activation: 'old' }); await deliverNotification(old.id, 0, real); assert.equal(calls, 0);

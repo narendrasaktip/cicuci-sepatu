@@ -8,7 +8,7 @@ for (const stage of ['FINAL', 'ESTIMATE', 'LOCKED', 'HISTORICAL_ESTIMATE', 'UNVE
   const historical = ['LOCKED', 'HISTORICAL_ESTIMATE'].includes(stage);
   const actualStage = pending ? 'ESTIMATE' : stage === 'UNVERIFIED_FINAL' ? 'FINAL' : stage;
   const order = { number: 'CS-VERIFIED', estimatedCompletionAt: '2026-12-01T00:00:00Z', aggregateStatus: pending ? 'AWAITING_CONSENT' : 'QUEUED', pricing: { version: 1, mode: 'NORMAL', stage: actualStage, staffVerified: stage === 'FINAL', lockedAt: historical ? '2026-11-11T03:00:00Z' : null, pairs: 1, initialTotalIdr: 50000, totalIdr: 50000 }, totalIdr: 50000, paidIdr: 0, balanceIdr: 50000, paymentStatus: 'UNPAID', items: [{ id: 'shoe', brand: 'Nike', model: '', color: '', serviceName: 'Cuci', status: pending ? 'AWAITING_CONSENT' : 'QUEUED', outcome: pending ? 'NEEDS_CONSENT' : 'APPROVED', quotedPriceIdr: 50000, finalPriceIdr: pending ? 0 : 50000, risk: 'Warna luntur', consents: [], photos: [], timeline: [] }] };
-  await context.route('**/api/**', async route => {
+  await context.route('**/api/v1/**', async route => {
     if (route.request().method() === 'GET' && new URL(route.request().url()).pathname === '/api/v1/track/fixture') await route.fulfill({ json: order });
     else { unexpected.push(`${route.request().method()} ${route.request().url()}`); await route.fulfill({ status: 501, json: { error: { code: 'UNEXPECTED_MOCK_ROUTE' } } }); }
   });

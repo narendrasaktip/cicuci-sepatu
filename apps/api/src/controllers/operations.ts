@@ -1,9 +1,11 @@
+import { feedbackEligible, feedbackInput, feedbackSelection, maskedFeedbackName, submitFeedback } from '../services/feedback.js';
+import { orderStatusCode } from '../services/order-status.js';
 import { broadcastPreview, broadcastConfirmation, previewBroadcast, confirmBroadcast } from '../services/whatsapp-broadcasts.js';
 import { handoverInput, preferenceInput } from '../services/handover.js';
 import { defaultStatusLabels, displayInput, publicDisplay, readDisplaySettings } from '../services/display-settings.js';
 import { archiveCustomer, archiveCustomerInput, deleteCustomer, deleteEntity, deletionInput } from '../services/deletions.js';
 import { pricingSnapshot, publicPricing, rateMode, packageRates } from '../services/pricing.js';
-import { planWrite, planUpdate, pricingPreview, previewPricing } from '../services/rate-rules.js';
+import { planWrite, planUpdate, pricingPreview, previewPricing, rateRules } from '../services/rate-rules.js';
 import { planSelect, writePlan } from '../services/rate-plans.js';
 import express, { Router, type RequestHandler } from 'express';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
@@ -35,7 +37,7 @@ const user = z.object({ name: text, email: z.email().max(191).transform(v => v.t
 const settings = z.object({ name: text.optional(), pickupInstructions: notes.optional(), consentHours: z.number().int().min(1).max(168).optional(), ...displayInput.shape }).strict();
 const item = z.object({ serviceId: id, brand: text, model: z.string().trim().max(100).optional(), color: z.string().trim().max(100).optional(), initialNotes: notes.default(''), quotedPriceIdr: money.optional(), assignedUserId: id.nullable().optional() }).strict();
 const paging = z.object({ cursor: id.optional(), limit: z.coerce.number().int().min(1).max(100).default(25), q: z.string().max(100).optional() });
-const orderQuery = paging.extend({ sort: z.enum(['createdAt', 'customer', 'status', 'estimatedCompletionAt']).optional(), direction: z.enum(['asc', 'desc']).default('asc'), status: z.enum(['RECEIVED','WAITING_INSPECTION','QUEUED','AWAITING_CONSENT','IN_PROGRESS','READY_FOR_PICKUP','RETURN_PENDING','COMPLETED']).optional(), customerId: id.optional(), overdue: z.enum(['true','false']).optional(), assignedUserId: id.optional() }).strict();
+const orderQuery = paging.extend({ sort: z.enum(['createdAt', 'customer', 'status', 'estimatedCompletionAt']).optional(), direction: z.enum(['asc', 'desc']).default('asc'), status: z.enum(['ACTIVE','RECEIVED','WAITING_INSPECTION','QUEUED','AWAITING_CONSENT','IN_PROGRESS','AWAITING_PAYMENT','REFUND_PENDING','READY_FOR_PICKUP','RETURN_PENDING','COMPLETED']).optional(), customerId: id.optional(), overdue: z.enum(['true','false']).optional(), assignedUserId: id.optional() }).strict();
 const wrap = (handler: RequestHandler): RequestHandler => (req, res, next) => { Promise.resolve(handler(req, res, next)).catch(next); };
 const param = (req: Parameters<RequestHandler>[0], name = 'id') => id.parse(req.params[name]);
 const actorOf = (res: Parameters<RequestHandler>[1]): Actor => res.locals.session.user;
@@ -63,14 +65,40 @@ function mutation<S extends z.ZodType>(schema: S, action: (tx: Tx, input: z.outp
   });
 }
 publicApi.use(rateLimit({ windowMs: 60000, limit: 90, standardHeaders: 'draft-7', legacyHeaders: false, handler: (_req, res) => { res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many requests' } }); } }));
+publicApi.get('/public/feedback', wrap(async (req, res) => {
+  const q = paging.pick({ cursor: true }).strict().parse(req.query);
+  const rows = await db.feedback.findMany({ where: { publicationConsent: true, isPublished: true, order: { archivedAt: null, customer: { archivedAt: null } } }, take: 13, ...(q.cursor ? { cursor: { id: q.cursor }, skip: 1 } : {}), orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { id: true, rating: true, review: true, order: { select: { customer: { select: { name: true } } } } } });
+  res.json({ data: rows.slice(0, 12).map(row => ({ name: maskedFeedbackName(row.order.customer.name), rating: row.rating, review: row.review })), nextCursor: rows.length > 12 ? rows[11]!.id : null });
+}));
+publicApi.get('/public/catalog', wrap(async (req, res) => {
+  empty.parse(req.query);
+  const plans = await db.ratePlan.findMany({ where: { isActive: true, archivedAt: null }, select: { id: true, name: true, turnaroundPolicy: true, rules: true }, orderBy: [{ name: 'asc' }, { id: 'asc' }] });
+  // ponytail: Maksimal 50 pasang mengikuti mesin tarif; hitung di server agar form tidak menduplikasi aturan paket.
+  res.json({ plans: plans.map(({ rules, ...plan }) => ({ ...plan, quotes: Array.from({ length: 50 }, (_, index) => ({ pairs: index + 1, ...previewPricing(rateRules.parse(rules), index + 1) })) })) });
+}));
 publicApi.get('/track/:token', wrap(async (req, res) => {
   empty.parse(req.query); const raw = token.parse(req.params.token); const order = await publicOrder(db, raw);
-  res.json({ ...publicDisplay(await readDisplaySettings(db, config.APP_BASE_URL)), archivedAt: order.archivedAt, number: order.number, createdAt: order.createdAt, estimatedCompletionAt: order.estimatedCompletionAt, pickupInstructions: order.pickupInstructions, handoverMethod: order.handoverMethod, handoverLocation: order.handoverLocation, handoverNote: order.handoverNote, aggregateStatus: order.aggregateStatus, pricing: order.pricing ? publicPricing(order.pricing, order.items) : null, ...finances(order.pricing ? [{ finalPriceIdr: pricingSnapshot.parse(order.pricing).totalIdr }] : order.items, order.payments), items: order.items.map(i => ({ id: i.id, brand: i.brand, model: i.model, color: i.color, serviceName: i.serviceName, status: i.status, outcome: i.outcome, quotedPriceIdr: i.quotedPriceIdr, finalPriceIdr: i.finalPriceIdr, findings: i.inspection?.findings || null, customerNote: i.inspection?.customerNote || null, risk: i.inspection?.risk || null, consents: i.consents.map(c => ({ id: c.id, findings: c.findings, customerNote: c.customerNote, risk: c.risk, quotedPriceIdr: c.quotedPriceIdr, expiresAt: c.expiresAt, decision: c.decision, expired: !c.consumedAt && c.expiresAt <= new Date() })), timeline: i.history.map(h => ({ status: h.toStatus, at: h.createdAt })), photos: i.photos.filter(p => p.customerVisible && ['BEFORE', 'FINDINGS', 'AFTER'].includes(p.kind)).map(p => ({ id: p.id, kind: p.kind, path: `/api/v1/track/${raw}/photos/${p.id}` })) })) });
+  const feedback = await db.feedback.findUnique({ where: { orderId: order.id }, select: feedbackSelection });
+  res.json({ feedback, feedbackEligible: !feedback && feedbackEligible(order), ...publicDisplay(await readDisplaySettings(db, config.APP_BASE_URL)), archivedAt: order.archivedAt, number: order.number, createdAt: order.createdAt, estimatedCompletionAt: order.estimatedCompletionAt, pickupInstructions: order.pickupInstructions, handoverMethod: order.handoverMethod, handoverLocation: order.handoverLocation, handoverNote: order.handoverNote, aggregateStatus: order.aggregateStatus, pricing: order.pricing ? publicPricing(order.pricing, order.items) : null, ...finances(order.pricing ? [{ finalPriceIdr: pricingSnapshot.parse(order.pricing).totalIdr }] : order.items, order.payments), items: order.items.map(i => ({ id: i.id, brand: i.brand, model: i.model, color: i.color, serviceName: i.serviceName, status: i.status, outcome: i.outcome, quotedPriceIdr: i.quotedPriceIdr, finalPriceIdr: i.finalPriceIdr, findings: i.inspection?.findings || null, customerNote: i.inspection?.customerNote || null, risk: i.inspection?.risk || null, consents: i.consents.map(c => ({ id: c.id, findings: c.findings, customerNote: c.customerNote, risk: c.risk, quotedPriceIdr: c.quotedPriceIdr, expiresAt: c.expiresAt, decision: c.decision, expired: !c.consumedAt && c.expiresAt <= new Date() })), timeline: i.history.map(h => ({ status: h.toStatus, at: h.createdAt })), photos: i.photos.filter(p => p.customerVisible && ['BEFORE', 'FINDINGS', 'AFTER'].includes(p.kind)).map(p => ({ id: p.id, kind: p.kind, path: `/api/v1/track/${raw}/photos/${p.id}` })) })) });
 }));
+publicApi.post('/track/:token/feedback', wrap(async (req, res) => { empty.parse(req.query); const raw = token.parse(req.params.token); const input = feedbackInput.parse(req.body); res.status(201).json(await transaction(tx => submitFeedback(tx, raw, input))); }));
 publicApi.post('/track/:token/pricing/confirm', wrap(async (req, res) => { empty.parse(req.query); const input = z.object({ totalIdr: money, confirmed: z.literal(true) }).strict().parse(req.body); const raw = token.parse(req.params.token); await transaction(async tx => { const order = await publicOrder(tx, raw); await confirmPricing(tx, order.id, input.totalIdr, null); }); res.json({ confirmed: true }); }));
 publicApi.post('/track/:token/consent', wrap(async (req, res) => { empty.parse(req.query); const input = z.object({ itemId: id, decision: z.enum(['APPROVE','DECLINE']) }).strict().parse(req.body); const raw = token.parse(req.params.token); res.json(await transaction(tx => decide(tx, raw, input.itemId, input.decision))); }));
 publicApi.get('/track/:token/photos/:id', wrap(async (req, res) => { empty.parse(req.query); const order = await publicOrder(db, token.parse(req.params.token)); const photo = await db.photo.findFirst({ where: { id: param(req), item: { orderId: order.id }, customerVisible: true, kind: { in: ['BEFORE', 'FINDINGS', 'AFTER'] } } }); check(photo, 'NOT_FOUND', 404); res.type(photo.mime).set('Content-Disposition', 'inline').send(Buffer.from(photo.content)); }));
 operations.use(authenticate);
+operations.get('/feedback', authorize('OWNER', 'ADMIN'), wrap(async (req, res) => {
+  const q = paging.pick({ cursor: true, limit: true }).extend({ visibility: z.enum(['pending', 'published', 'internal']).optional(), rating: z.coerce.number().int().min(1).max(5).optional() }).strict().parse(req.query);
+  const where = { ...(q.rating ? { rating: q.rating } : {}), ...(q.visibility === 'internal' ? { publicationConsent: false } : q.visibility ? { publicationConsent: true, isPublished: q.visibility === 'published' } : {}) };
+  res.json(page(await db.feedback.findMany({ ...window(q), where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { id: true, publicationConsent: true, isPublished: true, ...feedbackSelection, order: { select: { id: true, number: true, customer: { select: { name: true } } } } } }), q.limit));
+}));
+operations.patch('/feedback/:id', authorize('OWNER', 'ADMIN'), mutation(z.object({ isPublished: z.boolean() }).strict(), async (tx, input, actor, id) => {
+  const entry = await tx.feedback.findUnique({ where: { id } });
+  check(entry, 'NOT_FOUND', 404);
+  check(!input.isPublished || entry.publicationConsent, 'PUBLICATION_CONSENT_REQUIRED');
+  const updated = await tx.feedback.update({ where: { id }, data: input, select: { id: true, isPublished: true } });
+  await audit(tx, actor.id, input.isPublished ? 'FEEDBACK_PUBLISHED' : 'FEEDBACK_HIDDEN', id);
+  return updated;
+}));
 operations.post('/whatsapp-broadcasts/preview', authorize('OWNER'), mutation(broadcastPreview, (tx, input, actor) => previewBroadcast(tx, input, actor.id), 201));
 operations.post('/whatsapp-broadcasts/confirm', authorize('OWNER'), mutation(broadcastConfirmation, (tx, input, actor) => confirmBroadcast(tx, input, actor.id), 202));
 operations.get('/whatsapp-broadcasts', authorize('OWNER'), wrap(async (req, res) => {
@@ -125,10 +153,25 @@ operations.patch('/settings', authorize('OWNER'), mutation(settings,(tx,input,ac
 operations.post('/orders', authorize('OWNER','ADMIN'), mutation(z.object({ customerId: id, estimatedCompletionAt: date.optional(), pickupInstructions: notes.optional(), handover: handoverInput.optional(), saveHandoverPreference: z.boolean().optional(), ratePlanId: id.optional(), rateMode: rateMode.optional(), packageServiceId: id.optional(), items: z.array(item.extend({ serviceId: id.optional() })).min(1).max(50) }).strict().refine(v => !v.saveHandoverPreference || !!v.handover, { message: 'Handover required to save preference', path: ['handover'] }), createOrder,201));
 operations.get('/orders', wrap(async (req,res) => {
   const q = orderQuery.parse(req.query); const actor = actorOf(res);
-  const where: Prisma.OrderWhereInput = { archivedAt: null, ...(q.status ? { aggregateStatus: q.status } : {}), ...(q.customerId ? { customerId: q.customerId } : {}), ...(q.overdue === 'true' ? { estimatedCompletionAt: { lt: new Date() }, aggregateStatus: q.status ?? { not: 'COMPLETED' } } : {}), ...(q.q ? { OR: [{ number: { contains: q.q } }, { customer: { name: { contains: q.q } } }, { customer: { whatsapp: { contains: q.q } } }] } : {}), ...(actor.role === 'STAFF' || q.assignedUserId ? { items: { some: { assignedUserId: actor.role === 'STAFF' ? actor.id : q.assignedUserId } } } : {}) };
+  const processStatus = q.status === 'AWAITING_PAYMENT' ? 'READY_FOR_PICKUP' : q.status === 'REFUND_PENDING' ? undefined : q.status === 'ACTIVE' ? { not: 'COMPLETED' } : q.status;
+  const where: Prisma.OrderWhereInput = { archivedAt: null, ...(processStatus ? { aggregateStatus: processStatus } : {}), ...(q.customerId ? { customerId: q.customerId } : {}), ...(q.overdue === 'true' ? { estimatedCompletionAt: { lt: new Date() }, aggregateStatus: processStatus ?? { not: 'COMPLETED' } } : {}), ...(q.q ? { OR: [{ number: { contains: q.q } }, { customer: { name: { contains: q.q } } }, { customer: { whatsapp: { contains: q.q } } }] } : {}), ...(actor.role === 'STAFF' || q.assignedUserId ? { items: { some: { assignedUserId: actor.role === 'STAFF' ? actor.id : q.assignedUserId } } } : {}) };
   const direction = q.direction;
   const orderBy: Prisma.OrderOrderByWithRelationInput[] = q.sort ? [q.sort === 'customer' ? { customer: { name: direction } } : q.sort === 'status' ? { aggregateStatus: direction } : { [q.sort]: direction }, { id: direction }] : [{ id: 'asc' }];
-  const rows = await db.order.findMany({ where, include: { items: true, payments: true, customer: { select: { name: true } } }, ...window(q), orderBy });
+  const derivedFilter = !!q.status && q.status !== 'ACTIVE';
+  const fetchRows = (cursor?: string) => db.order.findMany({ where, include: { items: true, payments: true, customer: { select: { name: true } } }, ...window({ cursor, limit: derivedFilter ? 99 : q.limit }), orderBy });
+  // ponytail: balances are derived from the ledger; scan bounded batches until a full filtered page, move to DB projections when volume requires it.
+  const rows: Awaited<ReturnType<typeof fetchRows>> = [];
+  let cursor = q.cursor;
+  for (;;) {
+    const batch = await fetchRows(cursor);
+    for (const row of batch) {
+      const totals = finances(row.pricing ? [{ finalPriceIdr: pricingSnapshot.parse(row.pricing).totalIdr }] : row.items, row.payments);
+      if (!q.status || q.status === 'ACTIVE' || orderStatusCode({ ...totals, aggregateStatus: row.aggregateStatus }) === q.status) rows.push(row);
+      if (rows.length > q.limit) break;
+    }
+    if (!derivedFilter || rows.length > q.limit || batch.length < 100) break;
+    cursor = batch.at(-1)!.id;
+  }
   res.json(page(rows.map(o => ({ id: o.id, number: o.number, createdAt: o.createdAt, customerId: actor.role === 'STAFF' ? undefined : o.customerId, customer: o.customer, estimatedCompletionAt: o.estimatedCompletionAt, aggregateStatus: o.aggregateStatus, pricing: o.pricing, ...finances(o.pricing ? [{ finalPriceIdr: pricingSnapshot.parse(o.pricing).totalIdr }] : o.items,o.payments), itemCount: o.items.length })),q.limit));
 }));
 operations.get('/orders/:id', wrap(async (req,res) => { empty.parse(req.query); const order = { ...await getOrder(db,param(req)), publicOrigin: (await readDisplaySettings(db, config.APP_BASE_URL)).publicOrigin }; const actor = actorOf(res); if (actor.role === 'STAFF') { check(order.items.some(i => i.assignedUserId === actor.id),'FORBIDDEN',403); res.json({ ...order, customer: undefined, customerId: undefined, payments: undefined, items: order.items.filter(i => i.assignedUserId === actor.id) }); } else res.json(order); }));
@@ -158,7 +201,16 @@ operations.post('/orders/:id/refunds',authorize('OWNER'),mutation(payment,(tx,in
 operations.post('/items/:id/photos',express.json({limit:13982040}),mutation(z.object({kind:z.enum(['BEFORE','INSPECTION','FINDINGS','AFTER']),customerVisible:z.boolean(),mime:z.enum(['image/png','image/jpeg']),base64:z.string().max(13981016)}).strict(),(tx,input,actor,id)=>uploadPhoto(tx,id,input,actor),201));
 operations.delete('/photos/:id',authorize('OWNER','ADMIN'),mutation(empty,(tx,_input,actor,id)=>deletePhoto(tx,id,actor)));
 operations.get('/photos/:id',wrap(async(req,res)=>{ empty.parse(req.query); const photo=await db.photo.findUnique({where:{id:param(req)},include:{item:{select:{assignedUserId:true}}}}); check(photo,'NOT_FOUND',404); if(actorOf(res).role==='STAFF') check(photo.item.assignedUserId===actorOf(res).id,'FORBIDDEN',403); res.type(photo.mime).set('Content-Disposition','inline').send(Buffer.from(photo.content)); }));
-operations.get('/dashboard',wrap(async(req,res)=>{ const q=z.object({from:date.optional(),to:date.optional()}).strict().parse(req.query); check(!q.from || !q.to || q.from<=q.to,'VALIDATION_ERROR',400); const actor=actorOf(res); const orders=await db.order.findMany({where:actor.role==='STAFF'?{items:{some:{assignedUserId:actor.id}}}:{},include:{items:{select:{status:true}}}}); const active=orders.filter(o=>!o.archivedAt); const statuses=active.flatMap(o=>o.items.map(i=>i.status)); const payments=actor.role==='STAFF'?[]:await db.payment.findMany({where:{order:{isNot:null},receivedAt:{...(q.from?{gte:new Date(q.from)}:{}),...(q.to?{lte:new Date(q.to)}:{})}},select:{kind:true,amountIdr:true}}); res.json({activeOrders:active.filter(o=>o.aggregateStatus!=='COMPLETED').length,waitingInspection:statuses.filter(s=>['RECEIVED','INSPECTION'].includes(s)).length,awaitingConsent:statuses.filter(s=>s==='AWAITING_CONSENT').length,inProgress:statuses.filter(s=>['WASHING','DRYING','PACKING','FINISHING','QC','REWORK'].includes(s)).length,readyForPickup:statuses.filter(s=>s==='READY_FOR_PICKUP').length,overdue:active.filter(o=>o.aggregateStatus!=='COMPLETED'&&o.estimatedCompletionAt<new Date()).length,revenueIdr:actor.role==='STAFF'?undefined:payments.reduce((n,p)=>n+(p.kind==='REFUND'?-p.amountIdr:p.amountIdr),0)}); }));
+operations.get('/dashboard',wrap(async(req,res)=>{
+  const q=z.object({from:date.optional(),to:date.optional()}).strict().parse(req.query);
+  check(!q.from || !q.to || q.from<=q.to,'VALIDATION_ERROR',400);
+  const actor=actorOf(res);
+  const orders=await db.order.findMany({where:{archivedAt:null,...(actor.role==='STAFF'?{items:{some:{assignedUserId:actor.id}}}:{})},include:{items:true,payments:true}});
+  const statuses=orders.map(order=>orderStatusCode({aggregateStatus:order.aggregateStatus,...finances(order.pricing?[{finalPriceIdr:pricingSnapshot.parse(order.pricing).totalIdr}]:order.items,order.payments)}));
+  const count=(status:string)=>statuses.filter(value=>value===status).length;
+  const payments=actor.role==='STAFF'?[]:await db.payment.findMany({where:{order:{isNot:null},receivedAt:{...(q.from?{gte:new Date(q.from)}:{}),...(q.to?{lte:new Date(q.to)}:{})}},select:{kind:true,amountIdr:true}});
+  res.json({activeOrders:orders.filter(o=>o.aggregateStatus!=='COMPLETED').length,waitingInspection:count('WAITING_INSPECTION'),awaitingConsent:count('AWAITING_CONSENT'),inProgress:count('IN_PROGRESS'),readyForPickup:count('READY_FOR_PICKUP'),awaitingPayment:count('AWAITING_PAYMENT'),overdue:orders.filter(o=>o.aggregateStatus!=='COMPLETED'&&o.estimatedCompletionAt<new Date()).length,revenueIdr:actor.role==='STAFF'?undefined:payments.reduce((n,p)=>n+(p.kind==='REFUND'?-p.amountIdr:p.amountIdr),0)});
+}));
 operations.get('/notifications',authorize('OWNER','ADMIN'),wrap(async(req,res)=>{const q=paging.extend({status:z.enum(['PENDING','PROCESSING','SENT','SIMULATED','FAILED','SKIPPED']).optional(),template:z.string().max(100).optional(),orderId:id.optional()}).strict().parse(req.query);res.json(page((await db.notificationEvent.findMany({where:{...(actorOf(res).role !== 'OWNER' ? { NOT: { template: 'SERVICE_BROADCAST' } } : {}),status:q.status,template:q.template,orderId:q.orderId,...(q.q?{OR:[{template:{contains:q.q}},{eventKey:{contains:q.q}}]}:{})},include:{attempts:{orderBy:{attemptNo:'asc'}}},...window(q)})).map(event => ({id:event.id,provider:event.provider,template:event.template,recipient:event.recipient.length > 4 ? `***${event.recipient.slice(-4)}` : '***',status:event.status,eventKey:event.eventKey,createdAt:event.createdAt,attempts:event.attempts.map(attempt => ({id:attempt.id,attemptNo:attempt.attemptNo,status:attempt.status,attemptedAt:attempt.attemptedAt,response:safeMetadata({...(typeof attempt.response === 'object' && attempt.response && !Array.isArray(attempt.response) ? attempt.response : {}), reason: typeof attempt.response === 'object' && attempt.response && !Array.isArray(attempt.response) ? attempt.response.reason ?? attempt.response.error : undefined})}))})),q.limit));}));
 operations.post('/notifications/:id/retry',authorize('OWNER','ADMIN'),mutation(empty,async(tx,_input,_actor,id)=>{check(await tx.notificationEvent.findUnique({where:{id}}),'NOT_FOUND',404);check(false,'NOT_RETRYABLE');},202));
 operations.get('/audit',authorize('OWNER'),wrap(async(req,res)=>{
@@ -166,7 +218,7 @@ operations.get('/audit',authorize('OWNER'),wrap(async(req,res)=>{
   check(!q.from || !q.to || q.from<=q.to,'VALIDATION_ERROR',400);
   const where: Prisma.AuditLogWhereInput = {action:q.action,entityType:q.entityType,occurredAt:{gte:q.from ? new Date(q.from):undefined,lte:q.to ? new Date(q.to):undefined},AND:[...(q.q ? [{OR:[{action:{contains:q.q}},{entityType:{contains:q.q}},{entityId:{contains:q.q}}]}]:[]),...(q.outcome ? [{OR:[{metadata:{path:'$.outcome',equals:q.outcome}},{action:q.outcome === 'SUCCESS' ? 'LOGIN_SUCCEEDED' : 'LOGIN_FAILED'}]}]:[]),...(q.requestId ? [{metadata:{path:'$.requestId',equals:q.requestId}}]:[])]};
   const rows=await db.auditLog.findMany({where,...window(q),orderBy:[{occurredAt:'desc'},{id:'desc'}]});
-  const actors=await db.user.findMany({where:{id:{in:rows.flatMap(r=>r.actorUserId ? [r.actorUserId]:[])}},select:{id:true,name:true}});
+   const actors=await db.user.findMany({where:{id:{in:rows.flatMap(r=>r.actorUserId ? [r.actorUserId]:[])}},select:{id:true,name:true,email:true}});
   res.json(page(rows.map(r=>({...r,createdAt:r.occurredAt,actorUser:actors.find(a=>a.id===r.actorUserId) ?? null})),q.limit));
 }));
 export const operationErrors: express.ErrorRequestHandler = (error,_req,res,next)=>{if(error instanceof ApiError){res.status(error.status).json({error:{code:error.code,message:error.message}});return;}if(error instanceof Prisma.PrismaClientKnownRequestError){if(['P2002','P2034'].includes(error.code)){res.status(409).json({error:{code:'CONFLICT',message:'Duplicate or concurrent mutation. Retry with the same idempotency key.'}});return;}if(error.code==='P2025'){res.status(404).json({error:{code:'NOT_FOUND',message:'Record not found'}});return;}if(error.code==='P2003'){res.status(409).json({error:{code:'CONFLICT',message:'Related record unavailable'}});return;}}next(error);};

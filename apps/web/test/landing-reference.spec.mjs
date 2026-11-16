@@ -4,8 +4,8 @@ import { readFile } from 'node:fs/promises';
 for (const width of [320, 390, 768, 1440]) {
   test(`landing reference at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
-    await page.route('**/api/**', route => route.abort());
-    await page.goto('http://127.0.0.1:5174/');
+    await page.route('**/api/v1/**', route => route.abort());
+    await page.goto('http://127.0.0.1:5173/');
     await expect(page.getByRole('heading', { name: /Sepatu Kotor/ })).toBeVisible();
     await expect(page.locator('.hero-art img')).not.toHaveJSProperty('naturalWidth', 0);
     await expect(page.locator('.hero-art img')).toHaveAttribute('src', await page.locator('.brand img').getAttribute('src'));
@@ -13,7 +13,7 @@ for (const width of [320, 390, 768, 1440]) {
     await expect(logo).not.toHaveJSProperty('naturalWidth', 0);
     await expect(logo).toHaveCSS('object-fit', 'contain');
     const response = await page.request.get(await logo.evaluate(image => image.src));
-    expect(await response.body()).toEqual(await readFile(new URL('../../../cicuci-sepatu 8/assets/logo-transparent.png', import.meta.url)));
+    expect((await response.body()).equals(await readFile(new URL('../src/assets/logo.webp', import.meta.url)))).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     if (width <= 700) {
       const menu = page.getByRole('button', { name: 'Buka menu' });
@@ -22,16 +22,16 @@ for (const width of [320, 390, 768, 1440]) {
       await page.locator('#mobileMenu').getByRole('link', { name: 'FAQ' }).click();
       await expect(menu).toHaveAttribute('aria-expanded', 'false');
     }
-    await page.getByRole('link', { name: /Cek Status/ }).click();
+    await page.locator('a[href="#tracking"]').filter({ visible: true }).first().click();
     await expect(page.locator('#tracking')).toBeInViewport();
   });
 }
 
 test('direct admin and tracking routes remain separate', async ({ page }) => {
-  await page.route('**/api/**', route => route.fulfill({ status: 401, contentType: 'application/json', body: '{}' }));
-  await page.goto('http://127.0.0.1:5174/admin');
+  await page.route('**/api/v1/**', route => route.fulfill({ status: 401, contentType: 'application/json', body: '{}' }));
+  await page.goto('http://127.0.0.1:5173/admin');
   await expect(page.getByRole('heading', { name: 'Masuk Cicuci Admin' })).toBeVisible();
-  await page.goto('http://127.0.0.1:5174/track/test-token');
+  await page.goto('http://127.0.0.1:5173/track/test-token');
   await expect(page.locator('.site')).toHaveCount(0);
   await expect(page.locator('main')).toBeVisible();
 });

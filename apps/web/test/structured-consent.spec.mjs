@@ -12,7 +12,7 @@ function fixture() {
 async function setup(page) {
   const state = { order: fixture(), posts: [], uploads: [], unexpected: [], errors: [], capability: true, capabilityStatus: 200, postStatus: 200, rejectFindings: false };
   page.on('pageerror', e => state.errors.push(e.message));
-  await page.route('**/api/**', async route => {
+  await page.route('**/api/v1/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname, method = request.method();
     const get = method === 'GET';
     if (get && path === '/api/v1/auth/me') return route.fulfill({ json: { user: { id: 'owner', name: 'Fixture', role: 'OWNER' }, csrfToken: 'fixture' } });
@@ -136,7 +136,7 @@ for (const decision of ['APPROVE', 'DECLINE']) test(`public consent ${decision} 
   await page.getByRole('button', { name: decision === 'APPROVE' ? 'Setujui Risiko & Lanjutkan' : 'Tolak Pencucian', exact: true }).click(); expect(state.posts).toHaveLength(0);
   await page.getByRole('dialog').getByRole('button', { name: 'Konfirmasi', exact: true }).click(); await expect(page.getByRole('dialog')).not.toBeVisible();
   expect(state.posts).toEqual([{ itemId: 'shoe', decision }]);
-  if (decision === 'DECLINE') await expect(page.locator('article.panel').first().locator('.badge')).toHaveText('Tidak Dicuci');
+  if (decision === 'DECLINE') await expect(page.locator('article.panel').first().locator('.badge')).toHaveText('Menunggu Pengembalian Sepatu');
   clean(state);
 });
 test('staff rejection identifies store in return timeline', async ({ page }) => {
@@ -196,7 +196,7 @@ for (const width of [320, 1440]) for (const mode of ['missing', 'wrong-item', 'a
   expect(gaps.sections.every(gap => gap === 12)).toBe(true); expect(gaps.labelValues.every(gap => gap === 4)).toBe(true);
   expect(gaps.divider).toBe(12); expect(gaps.footer).toBe(12);
   await expect(page.locator('.timeline li')).toHaveCount(2);
-  await expect(page.locator('.timeline li').first().locator('strong')).toHaveText('Diterima sesuai label toko');
+  await expect(page.locator('.timeline li').first().locator('strong')).toHaveText('Diterima Sesuai Label Toko');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(state.posts).toEqual([]); clean(state);
 });

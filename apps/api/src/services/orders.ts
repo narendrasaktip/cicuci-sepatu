@@ -4,7 +4,7 @@ import { readDisplaySettings } from './display-settings.js';
 import { calculatePricing, initialPricing, planPricing, pricingSnapshot, type RateMode } from './pricing.js';
 import { lockedPlan } from './rate-plans.js';
 import { config } from '../lib/config.js';
-import { defaults, templateWrite, renderTemplate, customerText, receiptValues, handoverValues, encryptionReady, seal, unseal, trackingLink } from './whatsapp-templates.js';
+import { defaults, templateWrite, renderTemplate, customerText, receiptValues, handoverValues, encryptionReady, seal, unseal, feedbackLink, trackingLink } from './whatsapp-templates.js';
 import { safeMetadata } from '../lib/audit.js';
 import { type ItemStatus, type Role } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
@@ -16,6 +16,7 @@ export function check(value: unknown, code = 'CONFLICT', status = 409): asserts 
 export type Actor = { id: string; role: Role };
 export function admin(actor: Actor) { check(actor.role !== 'STAFF', 'FORBIDDEN', 403); }
 export const transitions: Partial<Record<ItemStatus, ItemStatus[]>> = { RECEIVED: ['INSPECTION'], QUEUED: ['WASHING'], WASHING: ['DRYING'], DRYING: ['PACKING', 'READY_FOR_PICKUP', 'REWORK'], PACKING: ['READY_FOR_PICKUP', 'REWORK'], FINISHING: ['READY_FOR_PICKUP', 'REWORK', 'QC'], QC: ['READY_FOR_PICKUP', 'REWORK'], REWORK: ['WASHING', 'FINISHING'], READY_FOR_PICKUP: ['HANDED_OVER'] };
+export function physicallyCompleted(items: { status: string }[]) { return items.length > 0 && items.every(item => ['HANDED_OVER', 'RETURNED'].includes(item.status)); }
 export function aggregate(statuses: string[]) {
   if (statuses.every(s => ['HANDED_OVER', 'RETURNED'].includes(s))) return 'COMPLETED';
   if (statuses.length && statuses.every(s => ['READY_FOR_PICKUP', 'RETURN_PENDING', 'HANDED_OVER', 'RETURNED'].includes(s)) && statuses.includes('READY_FOR_PICKUP')) return 'READY_FOR_PICKUP';
@@ -102,11 +103,13 @@ export async function notify(tx: Tx, orderId: string, template: string, key: str
     const raw = unseal(order.trackingSecret); if (typeof raw !== 'string' || hashToken(raw) !== order.trackingHash) throw new Error('TRACKING_UNAVAILABLE');
     const shoe = (i: typeof order.items[number]) => [i.brand, i.model, i.color].map(customerText).filter(Boolean).join(' ');
     const balanceMarker = template === 'PICKUP_BILL_UNPAID' ? `[SALDO_${randomUUID()}]` : undefined;
+    const publicOrigin = (await readDisplaySettings(tx, config.APP_BASE_URL)).publicOrigin;
     let rendered = renderTemplate(definition.body, {
       sapaan: order.customer.salutation ?? 'Kak', nama_pelanggan: customerText(order.customer.name), total_sepatu: String(order.items.length), nomor_pesanan: order.number,
       detail_sepatu: order.items.map(i => `• ${shoe(i)}${template.startsWith('PICKUP_BILL_') && ['REJECTED', 'DECLINED'].includes(i.outcome ?? '') ? ' — tidak dicuci, biaya pencucian Rp0' : ''}`).join('\n'),
       sepatu: itemId ? shoe(order.items.find(i => i.id === itemId)!) : 'seluruh sepatu pada pesanan',
-      url_tracking: trackingLink((await readDisplaySettings(tx, config.APP_BASE_URL)).publicOrigin, raw),
+      url_tracking: trackingLink(publicOrigin, raw),
+      url_ulasan: feedbackLink(publicOrigin, raw),
       ...handoverValues(order),
       ...(balanceMarker ? { sisa_pembayaran: balanceMarker } : {}),
       ...(template === 'ORDER_RECEIVED' ? receiptValues(order) : {}),
@@ -119,7 +122,7 @@ export async function notify(tx: Tx, orderId: string, template: string, key: str
       rendered += consent.findings ? `\nTemuan: ${publicText(consent.findings)}\nRisiko: ${publicText(consent.risk)}${consent.customerNote ? `\nCatatan: ${publicText(consent.customerNote)}` : ''}` : `\nDeskripsi risiko (legacy): ${publicText(consent.risk)}`;
     }
     // History never exposes bearer links. The immutable customer snapshot stays encrypted.
-    message = renderTemplate(definition.body, { sapaan: '[sapaan]', nama_pelanggan: '[pelanggan]', total_sepatu: String(order.items.length), nomor_pesanan: order.number, detail_sepatu: '[detail sepatu]', sepatu: '[sepatu terkait]', url_tracking: '[tautan privat]', metode_penyerahan: '[metode penyerahan]', lokasi_penyerahan: '[lokasi penyerahan]', catatan_penyerahan: '[catatan penyerahan]', ...(template === 'PICKUP_BILL_UNPAID' ? { sisa_pembayaran: '[saldo saat klaim]' } : {}), ...(template === 'ORDER_RECEIVED' ? { layanan_tarif: '[layanan dan tarif]', estimasi_total: '[total]', rincian_harga: '[rincian harga]', estimasi_selesai: '[perkiraan selesai]' } : {}) });
+    message = renderTemplate(definition.body, { sapaan: '[sapaan]', nama_pelanggan: '[pelanggan]', total_sepatu: String(order.items.length), nomor_pesanan: order.number, detail_sepatu: '[detail sepatu]', sepatu: '[sepatu terkait]', url_tracking: '[tautan privat]', url_ulasan: '[tautan ulasan privat]', metode_penyerahan: '[metode penyerahan]', lokasi_penyerahan: '[lokasi penyerahan]', catatan_penyerahan: '[catatan penyerahan]', ...(template === 'PICKUP_BILL_UNPAID' ? { sisa_pembayaran: '[saldo saat klaim]' } : {}), ...(template === 'ORDER_RECEIVED' ? { layanan_tarif: '[layanan dan tarif]', estimasi_total: '[total]', rincian_harga: '[rincian harga]', estimasi_selesai: '[perkiraan selesai]' } : {}) });
     encryptedMessage = seal({ message: rendered, trackingHash: order.trackingHash, ...(balanceMarker ? { balanceMarker } : {}) });
   } catch { reason ??= 'MESSAGE_UNAVAILABLE'; message = 'Pesan pelanggan tidak tersedia; tidak dikirim.'; }
 
@@ -138,7 +141,10 @@ export async function change(tx: Tx, item: { id: string; status: ItemStatus; ord
   const items = await tx.orderItem.findMany({ where: { orderId: item.orderId }, select: { id: true, status: true } });
   const ready = aggregate(items.map(i => i.status)) === 'READY_FOR_PICKUP';
   const wasReady = aggregate(items.map(i => i.id === item.id ? fromStatus : i.status)) === 'READY_FOR_PICKUP';
-  if (toStatus !== 'AWAITING_CONSENT') await notify(tx, item.orderId, toStatus === 'READY_FOR_PICKUP' ? 'ITEM_READY_FOR_PICKUP' : toStatus, history.id, item.id, toStatus);
+  if (!['AWAITING_CONSENT', 'HANDED_OVER'].includes(toStatus)) await notify(tx, item.orderId, toStatus === 'READY_FOR_PICKUP' ? 'ITEM_READY_FOR_PICKUP' : toStatus, history.id, item.id, toStatus);
+  if (['HANDED_OVER', 'RETURNED'].includes(toStatus) && physicallyCompleted(items)) {
+    await notify(tx, item.orderId, 'ORDER_HANDED_OVER', `order-handover:${item.orderId}`);
+  }
   if (ready && !wasReady) {
     const order = await getOrder(tx, item.orderId);
     await notify(tx, item.orderId, order.balanceIdr > 0 ? 'PICKUP_BILL_UNPAID' : 'PICKUP_BILL_PAID', `pickup-bill:${history.id}`);

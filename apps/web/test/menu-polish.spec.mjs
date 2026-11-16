@@ -11,7 +11,7 @@ const plan = { id: 'plan-fixture', name: 'Cuci Reguler', isActive: true, revisio
 const menus = ['Dashboard', 'Pesanan', 'Pelanggan', 'Tarif Pesanan', 'Pengguna', 'Pengaturan', 'WhatsApp', 'Audit'];
 async function fixture(context, role = 'OWNER') {
   const state = { unexpected: [], mutations: [], empty: false, fail: false };
-  await context.route('**/api/**', async route => {
+  await context.route('**/api/v1/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname.replace('/api/v1', ''), method = request.method();
     const list = data => ({ data: state.empty ? [] : data, page: { nextCursor: null } });
     let body;
@@ -24,8 +24,10 @@ async function fixture(context, role = 'OWNER') {
     else if (path === '/auth/me') body = { user: { ...owner, role }, csrfToken: 'fixture-only' };
     else if (state.fail) return route.fulfill({ status: 503, json: { error: { code: 'FIXTURE_UNAVAILABLE', message: 'Data contoh tidak tersedia.' } } });
     else if (path === '/dashboard') body = { activeOrders: 12, waitingInspection: 4, awaitingConsent: 1, inProgress: 5, readyForPickup: 2, overdue: 0, revenueIdr: 1250000 };
+    else if (path === '/display-settings') body = {};
     else if (path === '/orders') body = list([order]);
     else if (path === '/orders/order-fixture') body = order;
+    else if (path === '/orders/order-fixture/tracking-token') body = { trackingToken: 'fixture-private-token' };
     else if (path === '/customers') body = list([customer]);
     else if (path === '/customers/customer-fixture') body = customer;
     else if (path === '/users') body = list([owner, colleague]);
@@ -43,7 +45,7 @@ async function fixture(context, role = 'OWNER') {
 }
 async function start(page, context, role = 'OWNER') {
   const state = await fixture(context, role);
-  await page.goto(`${origin}/admin`); await page.getByLabel('Tampilan', { exact: true }).selectOption('new');
+  await page.goto(`${origin}/admin`); await expect(page.getByLabel('Tampilan', { exact: true })).toHaveCount(0);
   return state;
 }
 async function nav(page, name) {
@@ -61,26 +63,26 @@ for (const width of [1440, 768, 390, 320]) test(`every menu, nested views, no do
   for (const name of menus) {
     await nav(page, name); await expect(page.locator('main [aria-busy="true"]')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Memuat…', exact: true })).toHaveCount(0);
-    if (name === 'Pengguna') await expect(page.getByRole('heading', { name: owner.name, exact: true })).toBeVisible();
-    if (name === 'Pengaturan') await expect(page.getByLabel('Nama toko', { exact: true })).toHaveValue('Cicuci Sepatu');
+    if (name === 'Pengguna') await expect(page.locator('.user-table')).toContainText(owner.name);
+    if (name === 'Pengaturan') await expect(page.getByLabel('Nama Toko', { exact: true })).toHaveValue('Cicuci Sepatu');
     if (name === 'Tarif Pesanan') {
       await expect(page.getByRole('heading', { name: plan.name, exact: true })).toBeVisible();
       await page.getByText('Lanjutan: layanan lama', { exact: true }).click();
       await expect(page.getByRole('heading', { name: 'Layanan Lama', exact: true })).toBeVisible();
     }
     if (name === 'WhatsApp') {
+      await page.getByRole('navigation', { name: 'Bagian WhatsApp' }).getByRole('button', { name: 'Template Pesan', exact: true }).click();
       await expect(page.getByRole('heading', { name: 'Template Pesan Pelanggan' })).toBeVisible();
-      await page.locator('summary').filter({ hasText: /Riwayat/ }).click();
-      await expect(page.getByText('Identitas notifikasi', { exact: true })).toBeVisible();
+      await expect(page.getByText('Daftar Placeholder', { exact: false })).toBeVisible();
     }
     if (name === 'Audit') { await expect(page.getByText('Detail teknis', { exact: true })).toBeVisible(); await expect(page.locator('.audit-outcome')).toHaveText('Gagal'); }
     await page.locator('main').focus(); await overflow(page); await shot(page, info, name.replaceAll(' ', '-'));
   }
   await nav(page, 'Pesanan'); await page.getByRole('button', { name: order.number, exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Detail Pesanan', exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Keuangan', exact: true })).toBeVisible(); await overflow(page); await shot(page, info, 'Detail-Pesanan');
-  await page.getByRole('button', { name: 'Kembali ke pesanan', exact: true }).click();
-  await page.getByRole('button', { name: 'Pesanan baru', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Sepatu (1)', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Ringkasan Keuangan', exact: true })).toBeVisible(); await overflow(page); await shot(page, info, 'Detail-Pesanan');
+  await nav(page, 'Pesanan');
+  await page.getByRole('button', { name: 'Pesanan Baru', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Pesanan Baru', exact: true })).toBeVisible(); await overflow(page); await shot(page, info, 'Pesanan-Baru');
   await expect(page.getByRole('option', { name: plan.name, exact: true })).toHaveCount(1);
   expect(errors).toEqual([]); expect(state.unexpected).toEqual([]); expect(state.mutations).toEqual([]);
@@ -89,14 +91,22 @@ for (const width of [1440, 768, 390, 320]) test(`every menu, nested views, no do
 test('contextual trash, final order cell, focus, HAPUS guards, mocked refusal only', async ({ page, context }, info) => {
   await page.setViewportSize({ width: 1440, height: 1000 }); const state = await start(page, context);
   for (const [menu, name] of [['Pesanan', 'pesanan ' + order.number], ['Pelanggan', 'pelanggan ' + customer.name], ['Pengguna', 'pengguna ' + colleague.name], ['Tarif Pesanan', 'tarif ' + plan.name]]) {
-    await nav(page, menu); const button = page.getByRole('button', { name: 'Hapus ' + name, exact: true });
-    await expect(button).toHaveAttribute('title', 'Hapus ' + name);
+    await nav(page, menu); const label = menu === 'Pelanggan' ? 'Hapus permanen ' + name : 'Hapus ' + name;
+    const button = page.getByRole('button', { name: label, exact: true }).filter({ visible: true });
+    await expect(button).toHaveAttribute('title', label);
     const box = await button.boundingBox(); expect(box.width).toBeGreaterThanOrEqual(44); expect(box.height).toBeGreaterThanOrEqual(44);
     await button.focus(); await expect(button).toBeFocused();
     if (menu === 'Pesanan') expect(await button.evaluate(el => el.closest('td') === el.closest('tr').lastElementChild)).toBe(true);
     if (menu === 'Pengguna') await expect(page.getByRole('button', { name: 'Hapus pengguna ' + owner.name })).toHaveCount(0);
-    const countBefore = state.mutations.length; await page.keyboard.press('Enter'); const dialog = page.getByRole('dialog');
-    await expect(dialog).toHaveAccessibleName('Hapus ' + name);
+    const countBefore = state.mutations.length;
+    if (menu === 'Tarif Pesanan') {
+      page.once('dialog', dialog => dialog.accept('hapus')); await button.click(); expect(state.mutations).toHaveLength(countBefore);
+      page.once('dialog', dialog => dialog.accept('HAPUS')); await button.click();
+      await expect(page.getByRole('alert')).toContainText('Penghapusan ditolak');
+      continue;
+    }
+    await page.keyboard.press('Enter'); const dialog = page.getByRole('dialog');
+    await expect(dialog).toHaveAccessibleName(menu === 'Pelanggan' ? 'Hapus permanen pelanggan dan semua pesanan' : 'Hapus ' + name.substring(name.indexOf(' ') + 1));
     await dialog.getByLabel('Ketik HAPUS untuk konfirmasi', { exact: false }).fill('hapus');
     await dialog.getByRole('button', { name: 'Hapus permanen' }).click();
     await expect(dialog.getByRole('alert')).toContainText('Ketik HAPUS'); expect(state.mutations).toHaveLength(countBefore);
@@ -110,10 +120,10 @@ test('contextual trash, final order cell, focus, HAPUS guards, mocked refusal on
 for (const role of ['ADMIN', 'STAFF']) test(`${role} permissions preserved across presentations`, async ({ page, context }) => {
   const state = await start(page, context, role);
   for (const mode of ['new', 'classic']) {
-    await page.getByLabel('Tampilan', { exact: true }).selectOption(mode);
+    await page.evaluate(value => localStorage.setItem('cicuci-presentation', value), mode); await page.reload();
     for (const name of ['Pengguna', 'Pengaturan', 'Audit']) await expect(page.getByRole('navigation').getByRole('button', { name, exact: true })).toHaveCount(0);
     await nav(page, 'Pesanan'); await expect(page.locator('.icon-delete')).toHaveCount(0); await expect(page.getByRole('button', { name: 'Hapus pesanan', exact: true })).toHaveCount(0);
-    if (role === 'STAFF') await expect(page.getByRole('button', { name: 'Pesanan baru', exact: true })).toHaveCount(0);
+    if (role === 'STAFF') await expect(page.getByRole('button', { name: 'Pesanan Baru', exact: true })).toHaveCount(0);
     else { await nav(page, 'Pelanggan'); await expect(page.getByRole('button', { name: /Hapus pelanggan/ })).toHaveCount(0); }
   }
   expect(state.unexpected).toEqual([]);
@@ -126,30 +136,34 @@ test('all menu empty/error recovery, classic wording retained', async ({ page, c
     state.fail = true; await nav(page, name === 'Dashboard' ? 'Pesanan' : 'Dashboard'); await nav(page, name);
     await expect(page.getByRole('alert').first()).toBeVisible(); state.fail = false; state.empty = false;
   }
-  await page.getByLabel('Tampilan', { exact: true }).selectOption('classic');
-  await expect(page.locator('.icon-delete')).toHaveCount(0);
-  await expect(page.getByRole('navigation').getByRole('button', { name: 'Ringkasan', exact: true })).toBeVisible();
-  await expect(page.getByRole('navigation').getByRole('button', { name: 'Tarif pesanan', exact: true })).toBeVisible();
-  await nav(page, 'Pesanan'); await expect(page.getByRole('button', { name: 'Hapus pesanan', exact: true })).toBeVisible();
+  await page.evaluate(() => localStorage.setItem('cicuci-presentation', 'classic')); await page.reload();
+  await expect(page.getByLabel('Tampilan', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('navigation').getByRole('button', { name: 'Dashboard', exact: true })).toBeVisible();
+  await expect(page.getByRole('navigation').getByRole('button', { name: 'Tarif Pesanan', exact: true })).toBeVisible();
+  await nav(page, 'Pesanan'); await expect(page.getByRole('button', { name: 'Hapus pesanan ' + order.number, exact: true })).toBeVisible();
   expect(state.unexpected).toEqual([]);
 });
 
 for (const width of [1440, 320]) test(`nested editors and technical disclosures ${width}`, async ({ page, context }, info) => {
   await page.setViewportSize({ width, height: 1000 }); const state = await start(page, context);
-  await nav(page, 'Pelanggan'); await page.getByRole('button', { name: 'Detail pelanggan ' + customer.name, exact: true }).click();
+  await nav(page, 'Pelanggan'); await page.getByRole('button', { name: 'Detail Pelanggan ' + customer.name, exact: true }).filter({ visible: true }).click();
   await expect(page.getByText(customer.notes, { exact: true })).toBeVisible(); await overflow(page);
-  await page.getByRole('button', { name: 'Ubah pelanggan', exact: true }).click();
+  await page.getByRole('button', { name: 'Ubah Pelanggan', exact: true }).click();
   await expect(page.getByRole('dialog').getByLabel('Nama *', { exact: true })).toHaveValue(customer.name); await overflow(page); await shot(page, info, 'editor-pelanggan');
   await page.getByRole('button', { name: 'Batal', exact: true }).click();
-  await nav(page, 'Pengguna'); await page.getByRole('button', { name: 'Pengguna baru', exact: true }).click();
+  await page.getByRole('button', { name: 'Tutup Detail', exact: true }).click();
+  await nav(page, 'Pengguna'); await page.getByRole('button', { name: 'Pengguna Baru', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible(); await overflow(page); await shot(page, info, 'editor-pengguna'); await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await nav(page, 'Tarif Pesanan'); await page.getByRole('button', { name: 'Ubah tarif', exact: true }).click();
+  await nav(page, 'Tarif Pesanan'); await page.getByRole('button', { name: 'Ubah tarif ' + plan.name, exact: true }).click();
   await expect(page.getByRole('form', { name: 'Editor tarif' })).toBeVisible(); await overflow(page); await shot(page, info, 'editor-tarif');
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('dialog').getByRole('button', { name: 'Batal', exact: true }).click();
   await page.getByText('Lanjutan: layanan lama', { exact: true }).click(); await page.getByRole('button', { name: 'Ubah layanan / keaktifan', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible(); await overflow(page); await shot(page, info, 'editor-layanan-lama'); await page.keyboard.press('Escape');
-  await nav(page, 'WhatsApp'); await page.getByText('Diagnostik dan pengelolaan sesi', { exact: true }).click();
-  await page.getByText('Bantuan placeholder', { exact: true }).click(); await overflow(page); await shot(page, info, 'whatsapp-diagnostik');
+  await nav(page, 'WhatsApp'); await expect(page.getByRole('heading', { name: 'Diagnostik dan Pengelolaan Sesi', exact: true })).toBeVisible();
+  await page.getByRole('navigation', { name: 'Bagian WhatsApp' }).getByRole('button', { name: 'Template Pesan', exact: true }).click();
+  await page.locator('summary').filter({ hasText: 'Daftar Placeholder' }).click(); await overflow(page); await shot(page, info, 'whatsapp-diagnostik');
   await nav(page, 'Audit'); await page.getByText('Detail teknis', { exact: true }).click();
   await expect(page.getByText('request-fixture', { exact: true })).toBeVisible(); await overflow(page); await shot(page, info, 'audit-teknis');
   expect(state.unexpected).toEqual([]); expect(state.mutations).toEqual([]);

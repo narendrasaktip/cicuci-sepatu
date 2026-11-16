@@ -6,13 +6,14 @@ const pricing = { version: 1, mode: 'PROMO', serviceId: 'service', stage: 'FINAL
 const item = { id: 'shoe', serviceId: 'service', serviceName: 'Clean', brand: 'Nike', model: 'Air', color: 'Putih', status: 'RECEIVED', outcome: null, quotedPriceIdr: 42000, finalPriceIdr: 0, consents: [], photos: [{ id: 'before', kind: 'BEFORE', customerVisible: true }], history: [] };
 function order(items = [item]) { return { id: 'order', number: 'CS-FIXTURE', customer, items, payments: [], pricing: { ...pricing }, totalIdr: 175000, paidIdr: 0, balanceIdr: 175000, paymentStatus: 'UNPAID', aggregateStatus: 'WAITING_INSPECTION', estimatedCompletionAt: '2026-11-15T16:59:59.999Z', pickupInstructions: '' }; }
 async function routes(page, handler) {
-  await page.route('**/api/**', async route => {
+  await page.route('**/api/v1/**', async route => {
     const request = route.request(); const path = new URL(request.url()).pathname;
     const handled = await handler(path, request);
     let body = { data: [], page: { nextCursor: null } };
     if (handled) { await route.fulfill(handled); return; }
     if (path.endsWith('/auth/me')) body = { user: { id: 'owner', name: 'Fixture', role: 'OWNER' }, csrfToken: 'fixture' };
     else if (path.endsWith('/dashboard')) body = {};
+    else if (path.endsWith('/settings/inspection-capabilities')) body = { structuredRiskConsent: true };
     else if (path.endsWith('/pricing/plans')) body = [{ id: 'custom-plan', name: 'Tarif khusus', isActive: true, revision: 1, rules: [{ kind: 'PER_PAIR', minPairs: 1, maxPairs: null, priceIdr: 50000 }] }];
     else if (path.endsWith('/pricing/preview')) body = { totalIdr: 50000, breakdown: [] };
     else if (path.endsWith('/services')) body.data = [{ id: 'service', name: 'Clean', basePriceIdr: 50000 }];
@@ -23,7 +24,7 @@ async function routes(page, handler) {
 async function newOrder(page) {
   await page.goto(`${process.env.TEST_WEB_ORIGIN ?? 'http://127.0.0.1:5173'}/admin`);
   await page.getByRole('navigation', { name: 'Navigasi utama' }).getByRole('button', { name: 'Pesanan', exact: true }).click();
-  await page.getByRole('button', { name: 'Pesanan baru', exact: true }).click();
+  await page.getByRole('button', { name: 'Pesanan Baru', exact: true }).click();
   await page.getByLabel('Cari pelanggan').fill('Fixture');
   await page.getByRole('button', { name: 'Fixture · +628111111111', exact: true }).click();
 }
@@ -38,7 +39,7 @@ test('smart intake: one order mode, automatic service, no manual price, retry st
     }
   });
   await newOrder(page);
-  await page.getByLabel('Tarif pesanan').selectOption('custom-plan');
+  await page.getByRole('group', { name: 'Tarif dan estimasi' }).getByRole('combobox').selectOption('custom-plan');
   await expect(page.getByLabel('Layanan paket (semua pasangan)')).toHaveCount(0);
   const shoe = page.getByRole('group', { name: 'Sepatu 1', exact: true });
   await shoe.getByLabel('Merek *', { exact: true }).fill('Nike');
@@ -57,20 +58,20 @@ test('smart intake: one order mode, automatic service, no manual price, retry st
   expect(submissions[0].items[0]).not.toHaveProperty('quotedPriceIdr'); expect(submissions[0]).not.toHaveProperty('estimatedCompletionAt');
 });
 
-test('tracking final total requires explicit price consent; locked/refund due truthful', async ({ page }) => {
+test('tracking final snapshot and refund ledger remain truthful; no obsolete price confirmation', async ({ page }) => {
   const saved = order([{ ...item, status: 'RETURN_PENDING', outcome: 'REJECTED', finalPriceIdr: 0 }]); const calls = [];
   await routes(page, async (path, request) => {
     if (path.endsWith('/pricing/confirm')) { calls.push(request.postDataJSON()); saved.pricing.stage = 'LOCKED'; saved.refundDueIdr = 35000; return { json: { confirmed: true } }; }
     if (path.includes('/track/')) return { json: saved };
   });
   await page.goto(`http://127.0.0.1:5173/track/${'a'.repeat(64)}`);
-  await expect(page.getByText('Total final · menunggu persetujuan harga sebelum pengerjaan')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Setujui dan kunci harga' })).toBeDisabled(); expect(calls).toHaveLength(0);
-  await page.getByRole('checkbox', { name: /Saya menyetujui total final/ }).check();
-  await page.getByRole('button', { name: 'Setujui dan kunci harga' }).click();
-  await expect(page.getByRole('heading', { name: 'Harga disetujui dan terkunci' })).toBeVisible();
-  expect(calls).toEqual([{ totalIdr: 175000, confirmed: true }]);
-  await expect(page.getByText(/Kelebihan bayar \/ perlu pengembalian:/)).toContainText('35.000');
+  await expect(page.locator('.summary-total')).toContainText('175.000');
+  await expect(page.getByRole('button', { name: 'Setujui dan kunci harga' })).toHaveCount(0);
+  saved.pricing.stage = 'LOCKED'; saved.refundDueIdr = 35000; saved.paidIdr = 210000; saved.balanceIdr = -35000;
+  await page.getByRole('button', { name: 'Perbarui Status' }).click();
+  expect(calls).toEqual([]);
+  await expect(page.getByLabel('Status Pesanan', { exact: true })).toHaveText('Pengembalian Dana Tertunda');
+  await expect(page.locator('.summary-payment')).toContainText('35.000');
 });
 
 test('smart inspection rejection sends no manual price; final pricing visible before work', async ({ page }) => {
@@ -86,13 +87,13 @@ test('smart inspection rejection sends no manual price; final pricing visible be
   });
   await page.goto(`${process.env.TEST_WEB_ORIGIN ?? 'http://127.0.0.1:5173'}/admin`);
   await page.getByRole('navigation', { name: 'Navigasi utama' }).getByRole('button', { name: 'Pesanan', exact: true }).click();
-  await page.getByRole('button', { name: /CS-FIXTURE/ }).click();
-  await page.getByRole('button', { name: /Periksa sepatu/ }).click();
+  await page.getByRole('button', { name: 'CS-FIXTURE', exact: true }).click();
+  await page.getByRole('button', { name: 'Periksa Sepatu', exact: true }).click();
   await expect(page.getByLabel('Penawaran (Rp)', { exact: true })).toHaveCount(0);
   await page.getByLabel('Hasil pemeriksaan').selectOption('REJECTED');
   await page.getByLabel('Catatan pemeriksaan internal').fill('Tidak aman');
   await page.getByRole('dialog').getByRole('button', { name: /Simpan/ }).click();
-  await expect(page.getByRole('heading', { name: 'Total final · menunggu persetujuan harga sebelum pengerjaan' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Total final · hasil verifikasi staf', exact: true })).toBeVisible();
   expect(calls).toHaveLength(1); expect(calls[0]).not.toHaveProperty('quotedPriceIdr'); expect(calls[0].outcome).toBe('REJECTED');
 });
 
@@ -106,8 +107,8 @@ for (const role of ['OWNER', 'ADMIN', 'STAFF']) test(`tariff information from se
     if (path.endsWith('/services')) return { json: { data: [{ id: 'legacy', name: 'Layanan historis', basePriceIdr: 999999, isActive: false }, { id: 'cicuci-cleaning-v1', name: 'Cuci sepatu', basePriceIdr: 0, isActive: true }], page: { nextCursor: null } } };
   });
   await page.goto(`${process.env.TEST_WEB_ORIGIN ?? 'http://127.0.0.1:5173'}/admin`);
-  await page.getByRole('navigation').getByRole('button', { name: 'Tarif pesanan', exact: true }).click();
-  const plan = page.getByRole('article').filter({ hasText: 'Tarif khusus' });
+  await page.getByRole('navigation').getByRole('button', { name: 'Tarif Pesanan', exact: true }).click();
+  const plan = page.getByRole('row').filter({ hasText: 'Tarif khusus' });
   await expect(plan).toBeVisible(); await expect(plan).toContainText('50.000');
   expect(requests.filter(p => p.endsWith('/services'))).toEqual([]);
   await expect(page.getByText('Layanan historis', { exact: true })).not.toBeVisible();
@@ -134,10 +135,10 @@ for (const edit of [false, true]) test(`optional model/color in ${edit ? 'edit' 
   });
   await page.goto(`${process.env.TEST_WEB_ORIGIN ?? 'http://127.0.0.1:5173'}/admin`);
   await page.getByRole('navigation', { name: 'Navigasi utama' }).getByRole('button', { name: 'Pesanan', exact: true }).click();
-  await page.getByRole('button', { name: /CS-FIXTURE/ }).click();
+  await page.getByRole('button', { name: 'CS-FIXTURE', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Nike', exact: true })).toBeVisible();
-  if (edit) await page.getByText('Detail lainnya', { exact: true }).click();
-  await page.getByRole('button', { name: edit ? 'Ubah sepatu' : 'Tambah sepatu', exact: true }).click();
+  if (edit) await page.getByText('Detail Lainnya', { exact: true }).click();
+  await page.getByRole('button', { name: edit ? 'Ubah Sepatu' : 'Tambah Sepatu', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByLabel('Merek *', { exact: true })).toHaveAttribute('required', '');
   for (const label of ['Model (opsional)', 'Warna (opsional)']) {

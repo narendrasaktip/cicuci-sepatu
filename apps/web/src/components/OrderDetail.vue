@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { handoverLabels } from '../services/domain';
+import { adminOrderStatus, orderStatusCode, orderStatusTone, handoverLabels } from '../services/domain';
 import { completionDate } from '../services/domain';
 import { computed, inject, onMounted, ref } from 'vue';
 import { api, type User } from '../services/auth';
@@ -9,7 +9,7 @@ import ActionDialog, { type Field } from './ActionDialog.vue';
 const statusLabels = inject('statusLabels', ref<Record<string, string>>({}));
 const newPresentation = inject('newPresentation', ref(false));
 const props = defineProps<{ id: string; user: User; initialToken?: string }>();
-const emit = defineEmits<{ back: [] }>();
+defineEmits<{ back: [] }>();
 const order = ref<Order>(); const error = ref(''); const busy = ref(false); const notice = ref('');
 const token = ref(props.initialToken ?? '');
 const services = ref<Service[]>([]); const people = ref<User[]>([]);
@@ -38,6 +38,7 @@ function action(title: string, fields: Field[], path: string, method = 'POST', t
 }
 const pendingConsent = ref<{ approvalToken: string; expiresAt: string; itemId: string }>();
 const shareUrl = computed(() => token.value ? trackingUrl(token.value, '', '', order.value?.publicOrigin) : '');
+const feedbackUrl = computed(() => shareUrl.value ? new URL(`/feedback/${token.value}`, shareUrl.value).href : '');
 function metadata() { if (!order.value) return; action('Ubah estimasi & pengambilan', [{ key: 'estimatedCompletionAt', label: 'Estimasi selesai', type: 'datetime-local', value: localDate(order.value.estimatedCompletionAt), required: true }, { key: 'pickupInstructions', label: 'Instruksi pengambilan', type: 'textarea', value: order.value.pickupInstructions }], `/orders/${props.id}`, 'PATCH', v => ({ ...v, estimatedCompletionAt: new Date(String(v.estimatedCompletionAt)).toISOString() })); }
 function editHandover() { if (!order.value) return; action('Ubah penyerahan', [{ key: 'method', label: 'Metode', required: true, value: order.value.handoverMethod ?? 'STORE', options: Object.entries(handoverLabels).map(([value, label]) => ({ value, label })) }, { key: 'location', label: 'Lokasi (wajib selain di toko)', type: 'textarea', value: order.value.handoverLocation ?? '' }, { key: 'note', label: 'Catatan untuk pelanggan', type: 'textarea', value: order.value.handoverNote ?? '' }], `/orders/${props.id}`, 'PATCH', v => ({ handover: v })); }
 function itemFields(item?: Item): Field[] { return [
@@ -69,7 +70,8 @@ function ledger(refund = false) { if (!order.value) return; action(refund ? 'Cat
 const uploads = ref<Record<string, { kind: string; visible: boolean }>>({});
 function uploadChoice(item: Item) { return uploads.value[item.id] ??= { kind: ['RECEIVED', 'INSPECTION', 'QUEUED', 'AWAITING_CONSENT', 'RETURN_PENDING'].includes(item.status) ? 'BEFORE' : 'AFTER', visible: true }; }
 async function upload(item: Item, event: Event) { const input = event.target as HTMLInputElement; const file = input.files?.[0]; if (!file) return; await run(async () => { const choice = uploadChoice(item); await api(`/items/${item.id}/photos`, 'POST', { ...await photoInput(file), kind: choice.kind, customerVisible: choice.kind !== 'INSPECTION' && choice.visible }); await load(); notice.value = 'Foto tersimpan.'; }); input.value = ''; }
-async function copy() { await run(async () => { await navigator.clipboard.writeText(shareUrl.value); notice.value = 'Tautan disalin. Bagikan hanya kepada pelanggan terkait.'; }); }
+const copied = ref(false);
+async function copy() { await run(async () => { await navigator.clipboard.writeText(shareUrl.value); copied.value = true; notice.value = 'Tautan disalin. Bagikan hanya kepada pelanggan terkait.'; }); }
 const canPay = computed(() => (!order.value?.pricing || order.value.pricing.stage !== 'ESTIMATE') && order.value?.items.every(i => !['RECEIVED', 'INSPECTION', 'AWAITING_CONSENT'].includes(i.status)));
 const canHandover = computed(() => !!canPay.value && !!order.value && order.value.items.length > 0 && order.value.items.every(item => ['READY_FOR_PICKUP', 'RETURN_PENDING'].includes(item.status)) && order.value.balanceIdr <= 0);
 function handover() { action('Sudah diambil', [], `/orders/${props.id}/handover`, 'POST', v => v, 'Tandai semua sepatu selesai sebagai sudah diambil. Pesanan harus lunas.'); }
@@ -101,33 +103,30 @@ function handover() { action('Sudah diambil', [], `/orders/${props.id}/handover`
       Data ini tidak tersedia untuk perubahan. Hubungi pemilik toko.
     </p>
     <header class="order-detail-heading">
-      <div class="actions order-detail-nav">
-        <button
-          class="secondary"
-          @click="emit('back')"
-        >
-          {{ newPresentation ? 'Kembali ke Pesanan' : 'Kembali ke pesanan' }}
-        </button><button
-          class="secondary"
-          :disabled="busy"
-          @click="run(load)"
-        >
-          {{ newPresentation ? 'Muat Ulang' : 'Muat ulang' }}
-        </button>
-      </div>
-
       <div>
         <p class="eyebrow">
           Detail Pesanan
         </p><component :is="'h1'">
           {{ order.number }}
-        </component><p v-if="order.customer">
-          {{ order.customer.name }} · {{ order.customer.whatsapp }}
+        </component><p
+          v-if="order.customer"
+          class="order-customer"
+        >
+          <strong>{{ order.customer.name }}</strong><span>{{ order.customer.whatsapp }}</span>
         </p>
-      </div><span
-        class="badge order-status"
-        :data-status="order.aggregateStatus"
-      >{{ statusName(statusLabels, 'admin', order.aggregateStatus) }}</span>
+      </div><div class="order-detail-status">
+        <span
+          class="badge order-status"
+          :data-status="orderStatusCode(order)"
+          :data-tone="orderStatusTone(orderStatusCode(order))"
+        >{{ adminOrderStatus(order, statusLabels) }}</span>
+        <p
+          v-if="order.aggregateStatus === 'READY_FOR_PICKUP' && order.balanceIdr > 0"
+          class="muted"
+        >
+          Perawatan selesai · Sisa {{ money(order.balanceIdr) }}
+        </p>
+      </div>
     </header>
     <div :class="{ 'order-detail-content': newPresentation }">
       <section
@@ -170,7 +169,7 @@ function handover() { action('Sudah diambil', [], `/orders/${props.id}/handover`
             </div><span
               class="badge order-status"
               :data-status="item.status"
-            >{{ statusName(statusLabels, 'admin', item.status) }}</span>
+            >{{ item.status === 'READY_FOR_PICKUP' ? 'Selesai Dikerjakan' : item.status === 'RETURN_PENDING' ? 'Menunggu Pengembalian Sepatu' : item.status === 'RETURNED' ? 'Sudah Dikembalikan' : statusName(statusLabels, 'admin', item.status) }}</span>
           </div>
           <dl class="shoe-facts">
             <div><dt>Penawaran</dt><dd>{{ money(item.quotedPriceIdr) }}</dd></div>
@@ -197,7 +196,7 @@ function handover() { action('Sudah diambil', [], `/orders/${props.id}/handover`
             <button
               v-for="next in (order.archivedAt || (!admin && item.assignedUserId !== user.id) ? [] : nextActions(item, !admin))"
               :key="next"
-              :disabled="busy"
+              :disabled="busy || (next === 'WASHING' && order.pricing?.stage === 'ESTIMATE')"
               @click="transition(item, next)"
             >
               {{ actionLabel(next) }}
@@ -210,135 +209,149 @@ function handover() { action('Sudah diambil', [], `/orders/${props.id}/handover`
               Tugaskan (Opsional)
             </button>
           </div>
+          <p
+            v-if="order.pricing?.stage === 'ESTIMATE' && item.status === 'QUEUED'"
+            class="muted"
+          >
+            Pengerjaan menunggu pemeriksaan lengkap dan persetujuan risiko.
+          </p>
           <details class="shoe-details">
             <summary>Detail Lainnya</summary>
-            <section
-              v-if="admin && ['RECEIVED', 'INSPECTION'].includes(item.status)"
-              class="shoe-settings"
-            >
-              <h3>Pengaturan Sepatu</h3>
-              <div class="actions">
+            <div class="shoe-detail-sections">
+              <section
+                v-if="admin && ['RECEIVED', 'INSPECTION'].includes(item.status)"
+                class="shoe-settings"
+              >
+                <h3>Pengaturan Sepatu</h3>
+                <div class="actions">
+                  <button
+                    class="secondary"
+                    @click="editItem(item)"
+                  >
+                    Ubah Sepatu
+                  </button>
+                  <button
+                    v-if="admin && order.pricing && !item.outcome && ['RECEIVED', 'INSPECTION'].includes(item.status)"
+                    class="danger"
+                    @click="action('Batalkan cuci pasangan', [{ key: 'reason', label: 'Alasan penolakan/pembatalan pelanggan', type: 'textarea', required: true }], `/items/${item.id}/decline-cleaning`, 'POST', v => v, 'Biaya pasangan menjadi nol. Harga pasangan lain yang telah disetujui tetap; kelebihan bayar harus dikembalikan lewat pencatatan refund nyata.')"
+                  >
+                    Batalkan Cuci Pasangan
+                  </button>
+                </div>
+              </section>
+              <details
+                v-if="admin && !item.assignedUserId && !terminal(item)"
+                class="assignment-info"
+              >
+                <summary>Ketentuan Penugasan</summary>
+                <p class="muted">
+                  Owner/Admin dapat memulai tanpa petugas. Staf hanya mengerjakan sepatu yang ditugaskan kepadanya.
+                </p>
+              </details>
+              <details
+                v-if="item.inspection"
+                class="inspection-record"
+              >
+                <summary>Hasil Inspeksi Permanen</summary><p class="preserve">
+                  {{ item.inspection.notes }}
+                </p><p class="preserve">
+                  Risiko: {{ item.inspection.risk || 'Tidak ada' }}
+                </p>
+              </details>
+              <section
+                v-if="item.consents.length"
+                class="consent-records"
+              >
+                <h3>{{ newPresentation ? 'Persetujuan Risiko' : 'Persetujuan risiko' }}</h3><ul class="records">
+                  <li
+                    v-for="consent in item.consents"
+                    :key="consent.id"
+                  >
+                    <p class="preserve">
+                      {{ consent.risk }}
+                    </p><p>{{ money(consent.quotedPriceIdr) }} · {{ consent.decision ? label(consent.decision) : new Date(consent.expiresAt) <= new Date() ? 'Kedaluwarsa, belum diputuskan' : 'Belum diputuskan' }} · {{ date(consent.expiresAt) }}</p>
+                  </li>
+                </ul>
+              </section>
+              <div
+                v-if="admin && item.status === 'AWAITING_CONSENT'"
+                class="actions"
+              >
                 <button
                   class="secondary"
-                  @click="editItem(item)"
+                  @click="action('Terbitkan ulang persetujuan', [], `/items/${item.id}/consent/reissue`, 'POST', () => ({}), 'Token tindakan sebelumnya tidak berlaku. Bagikan URL baru secara aman.')"
                 >
-                  Ubah Sepatu
-                </button>
-                <button
-                  v-if="admin && order.pricing && !item.outcome && ['RECEIVED', 'INSPECTION'].includes(item.status)"
+                  Terbitkan ulang persetujuan
+                </button><button
                   class="danger"
-                  @click="action('Batalkan cuci pasangan', [{ key: 'reason', label: 'Alasan penolakan/pembatalan pelanggan', type: 'textarea', required: true }], `/items/${item.id}/decline-cleaning`, 'POST', v => v, 'Biaya pasangan menjadi nol. Harga pasangan lain yang telah disetujui tetap; kelebihan bayar harus dikembalikan lewat pencatatan refund nyata.')"
+                  @click="action('Kembalikan tanpa pencucian', [{ key: 'reason', label: 'Alasan pengembalian', type: 'textarea', required: true }], `/items/${item.id}/consent/return`, 'POST', v => v, 'Biaya cuci menjadi nol; semua persetujuan tertunda dibatalkan.')"
                 >
-                  Batalkan Cuci Pasangan
+                  Proses pengembalian
                 </button>
               </div>
-            </section>
-            <details
-              v-if="admin && !item.assignedUserId && !terminal(item)"
-              class="assignment-info"
-            >
-              <summary>Ketentuan Penugasan</summary>
-              <p class="muted">
-                Owner/Admin dapat memulai tanpa petugas. Staf hanya mengerjakan sepatu yang ditugaskan kepadanya.
-              </p>
-            </details>
-            <details v-if="item.inspection">
-              <summary>Hasil inspeksi permanen</summary><p class="preserve">
-                {{ item.inspection.notes }}
-              </p><p class="preserve">
-                Risiko: {{ item.inspection.risk || 'Tidak ada' }}
-              </p>
-            </details>
-            <section v-if="item.consents.length">
-              <h3>{{ newPresentation ? 'Persetujuan Risiko' : 'Persetujuan risiko' }}</h3><ul class="records">
-                <li
-                  v-for="consent in item.consents"
-                  :key="consent.id"
+              <section class="shoe-documentation">
+                <div class="documentation-heading">
+                  <h3>{{ newPresentation ? 'Foto Dokumentasi' : 'Foto dokumentasi' }}</h3><span>{{ item.photos.length }}/20 Foto</span>
+                </div>
+                <p
+                  v-if="!item.photos.length"
+                  class="photo-empty"
                 >
-                  <p class="preserve">
-                    {{ consent.risk }}
-                  </p><p>{{ money(consent.quotedPriceIdr) }} · {{ consent.decision ? label(consent.decision) : new Date(consent.expiresAt) <= new Date() ? 'Kedaluwarsa, belum diputuskan' : 'Belum diputuskan' }} · {{ date(consent.expiresAt) }}</p>
-                </li>
-              </ul>
-            </section>
-            <div
-              v-if="admin && item.status === 'AWAITING_CONSENT'"
-              class="actions"
-            >
-              <button
-                class="secondary"
-                @click="action('Terbitkan ulang persetujuan', [], `/items/${item.id}/consent/reissue`, 'POST', () => ({}), 'Token tindakan sebelumnya tidak berlaku. Bagikan URL baru secara aman.')"
-              >
-                Terbitkan ulang persetujuan
-              </button><button
-                class="danger"
-                @click="action('Kembalikan tanpa pencucian', [{ key: 'reason', label: 'Alasan pengembalian', type: 'textarea', required: true }], `/items/${item.id}/consent/return`, 'POST', v => v, 'Biaya cuci menjadi nol; semua persetujuan tertunda dibatalkan.')"
-              >
-                Proses pengembalian
-              </button>
-            </div>
-            <section class="shoe-documentation">
-              <div class="documentation-heading">
-                <h3>{{ newPresentation ? 'Foto Dokumentasi' : 'Foto dokumentasi' }}</h3><span>{{ item.photos.length }}/20 Foto</span>
-              </div>
-              <p
-                v-if="!item.photos.length"
-                class="photo-empty"
-              >
-                Belum ada foto dokumentasi.
-              </p>
-              <div
-                v-if="item.photos.length"
-                class="photos"
-              >
-                <figure
-                  v-for="photo in item.photos"
-                  :key="photo.id"
+                  Belum ada foto dokumentasi.
+                </p>
+                <div
+                  v-if="item.photos.length"
+                  class="photos"
                 >
-                  <a
-                    :href="`/api/v1/photos/${photo.id}`"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  ><img
-                    :src="`/api/v1/photos/${photo.id}`"
-                    :alt="`${label(photo.kind)} ${item.brand} ${item.model}`"
-                    loading="lazy"
-                  ></a><figcaption>{{ label(photo.kind) }} · {{ photo.customerVisible ? 'Pelanggan' : 'Privat' }}</figcaption><button
-                    v-if="admin && !terminal(item) && item.status !== 'READY_FOR_PICKUP' && !(item.inspection && ['BEFORE', 'INSPECTION'].includes(photo.kind))"
-                    class="danger"
-                    @click="action('Hapus foto permanen', [], `/photos/${photo.id}`, 'DELETE', () => ({}), 'Foto dihapus permanen. Bukti inspeksi dilindungi backend.')"
+                  <figure
+                    v-for="photo in item.photos"
+                    :key="photo.id"
                   >
-                    Hapus foto
-                  </button>
-                </figure>
-              </div>
-              <div
-                v-if="!order.archivedAt && !terminal(item)"
-                class="upload"
-              >
-                <label><input
-                  v-model="uploadChoice(item).visible"
-                  type="checkbox"
-                >Terlihat pelanggan</label>
-                <label :for="`file-${item.id}`">Unggah PNG/JPEG, maksimum 10 MiB</label><input
-                  :id="`file-${item.id}`"
-                  type="file"
-                  accept="image/png,image/jpeg"
-                  :disabled="busy || item.photos.length >= 20"
-                  @change="upload(item, $event)"
+                    <a
+                      :href="`/api/v1/photos/${photo.id}`"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    ><img
+                      :src="`/api/v1/photos/${photo.id}`"
+                      :alt="`${label(photo.kind)} ${item.brand} ${item.model}`"
+                      loading="lazy"
+                    ></a><figcaption>{{ label(photo.kind) }} · {{ photo.customerVisible ? 'Pelanggan' : 'Privat' }}</figcaption><button
+                      v-if="admin && !terminal(item) && item.status !== 'READY_FOR_PICKUP' && !(item.inspection && ['BEFORE', 'INSPECTION'].includes(photo.kind))"
+                      class="danger"
+                      @click="action('Hapus foto permanen', [], `/photos/${photo.id}`, 'DELETE', () => ({}), 'Foto dihapus permanen. Bukti inspeksi dilindungi backend.')"
+                    >
+                      Hapus foto
+                    </button>
+                  </figure>
+                </div>
+                <div
+                  v-if="!order.archivedAt && !terminal(item)"
+                  class="upload"
                 >
-              </div>
-            </section>
-            <details class="shoe-history">
-              <summary>Riwayat Status</summary><ol class="timeline">
-                <li
-                  v-for="history in item.history"
-                  :key="history.id"
-                >
-                  <strong>{{ statusName(statusLabels, 'admin', history.toStatus) }}</strong><time>{{ date(history.createdAt) }}</time><p>{{ history.reason }}</p>
-                </li>
-              </ol>
-            </details>
+                  <label><input
+                    v-model="uploadChoice(item).visible"
+                    type="checkbox"
+                  >Terlihat pelanggan</label>
+                  <label :for="`file-${item.id}`">Unggah PNG/JPEG, maksimum 10 MiB</label><input
+                    :id="`file-${item.id}`"
+                    type="file"
+                    accept="image/png,image/jpeg"
+                    :disabled="busy || item.photos.length >= 20"
+                    @change="upload(item, $event)"
+                  >
+                </div>
+              </section>
+              <details class="shoe-history">
+                <summary>Riwayat Status</summary><ol class="timeline">
+                  <li
+                    v-for="history in item.history"
+                    :key="history.id"
+                  >
+                    <strong>{{ history.toStatus === 'READY_FOR_PICKUP' ? 'Selesai Dikerjakan' : history.toStatus === 'RETURNED' ? 'Sudah Dikembalikan' : statusName(statusLabels, 'admin', history.toStatus) }}</strong><time>{{ date(history.createdAt) }}</time><p>{{ history.reason }}</p>
+                  </li>
+                </ol>
+              </details>
+            </div>
           </details>
         </article>
       </section>
@@ -455,7 +468,7 @@ function handover() { action('Sudah diambil', [], `/orders/${props.id}/handover`
           v-if="shareUrl"
           class="access-share"
         >
-          <label for="secure-link">Tautan rahasia untuk dibagikan manual</label><input
+          <label for="secure-link">Tautan Pelacakan Privat</label><input
             id="secure-link"
             :value="shareUrl"
             readonly
@@ -465,7 +478,7 @@ function handover() { action('Sudah diambil', [], `/orders/${props.id}/handover`
               class="access-copy"
               @click="copy"
             >
-              Salin Tautan
+              {{ copied ? 'Tautan Disalin' : 'Salin Tautan' }}
             </button><a
               class="access-open"
               :href="shareUrl"
@@ -473,6 +486,13 @@ function handover() { action('Sudah diambil', [], `/orders/${props.id}/handover`
               rel="noopener noreferrer"
               referrerpolicy="no-referrer"
             >Buka Pelacakan</a>
+            <a
+              class="access-open"
+              :href="feedbackUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              referrerpolicy="no-referrer"
+            >Buka Ulasan</a>
           </div>
         </div>
         <details class="access-management">

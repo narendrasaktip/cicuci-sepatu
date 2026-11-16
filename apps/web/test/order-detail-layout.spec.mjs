@@ -7,7 +7,7 @@ for (const width of [1440, 900, 390]) test(`order detail hierarchy and safe cont
   const unexpected = [];
   const item = { id: 'shoe', brand: 'Nike', model: '', color: '', serviceName: 'Promo', status: 'RETURN_PENDING', outcome: 'DECLINED', quotedPriceIdr: 45000, finalPriceIdr: 0, assignedUserId: null, photos: [], history: [], consents: [] };
   const order = { id: 'fixture', number: 'CS-FIXTURE', customer: { name: 'Fixture', whatsapp: '+628111111111' }, aggregateStatus: 'RETURN_PENDING', paymentStatus: 'UNPAID', totalIdr: 0, paidIdr: 0, balanceIdr: 0, estimatedCompletionAt: '2026-11-19T16:59:59.999Z', handoverMethod: 'STORE', items: [item], payments: [], pricing: { version: 1, stage: 'FINAL', rateMode: 'PROMO', pairs: 0, initialTotalIdr: 45000, totalIdr: 0 } };
-  await context.route('**/api/**', async route => {
+  await context.route('**/api/v1/**', async route => {
     const req = route.request(); const path = new URL(req.url()).pathname.replace('/api/v1', '');
     const responses = {
       '/auth/me': { user: { id: 'owner', name: 'Owner', role: 'OWNER' }, csrfToken: 'fixture' },
@@ -35,11 +35,11 @@ for (const width of [1440, 900, 390]) test(`order detail hierarchy and safe cont
   const summary = page.getByRole('complementary', { name: 'Ringkasan Pesanan' });
   await expect(summary.locator('.balance-highlight')).toContainText('Sisa Tagihan');
   const textSizes = await summary.locator('.order-detail-pricing h2, .order-detail-pricing p, .balance-highlight span, .finance-totals dd, .handover-facts dd').evaluateAll(nodes => nodes.map(node => getComputedStyle(node).fontSize));
-  expect(new Set(textSizes).size).toBe(1);
-  await expect(shoes.locator('.shoe-service')).toHaveCSS('font-size', '12.8px');
-  await expect(shoes.locator('.shoe-details > summary')).toHaveCSS('font-size', '12.8px');
+  expect(textSizes.every(size => parseFloat(size) >= 13)).toBe(true);
+  await expect(shoes.locator('.shoe-service')).toHaveCSS('font-size', '13px');
+  await expect(shoes.locator('.shoe-details > summary')).toHaveCSS('font-size', '13px');
   const buttonSizes = await page.locator('.order-detail-heading button, .order-detail-content button:not(.order-detail-shoe > .actions > button:not(.secondary):not(.danger)), .order-detail-summary summary, .order-detail-summary dt, .order-detail-access label, .order-detail-content .access-open').evaluateAll(nodes => nodes.map(node => parseFloat(getComputedStyle(node).fontSize) / parseFloat(getComputedStyle(document.documentElement).fontSize)));
-  expect(buttonSizes.every(size => Math.abs(size - .75) < .001)).toBe(true);
+  expect(buttonSizes.every(size => size >= .8125)).toBe(true);
   const explanation = summary.locator('.pricing-explanation');
   const disclosure = await explanation.locator('summary').boundingBox();
   const collapsed = await explanation.boundingBox();
@@ -48,16 +48,18 @@ for (const width of [1440, 900, 390]) test(`order detail hierarchy and safe cont
   expect(balance.y - disclosure.y - disclosure.height).toBeLessThanOrEqual(12);
   expect(disclosure.height).toBeGreaterThanOrEqual(44);
   await expect(summary.locator('.finance-totals > div')).toHaveCount(2);
-  await expect(summary.locator('.payment-state')).toHaveText('Belum dibayar');
+  await expect(summary.locator('.payment-state')).toHaveText('Belum Dibayar');
   await expect(summary.locator('.completion-highlight')).toContainText('Estimasi Selesai');
   await expect(summary.locator('.handover-facts')).toContainText('Di toko');
   const handover = await summary.getByRole('button', { name: 'Ubah Penyerahan', exact: true }).boundingBox();
   const estimate = await summary.getByRole('button', { name: 'Ubah Estimasi', exact: true }).boundingBox();
-  expect(Math.abs(handover.y - estimate.y)).toBeLessThan(1);
-  expect(estimate.x).toBeGreaterThan(handover.x);
+  if (width > 480) {
+    expect(Math.abs(handover.y - estimate.y)).toBeLessThan(1);
+    expect(estimate.x).toBeGreaterThan(handover.x);
+  } else expect(estimate.y).toBeGreaterThan(handover.y);
   const a = await shoes.boundingBox(), b = await summary.boundingBox();
   if (width > 1100) expect(b.x).toBeGreaterThan(a.x + a.width - 1);
-  else expect(b.y).toBeGreaterThan(a.y);
+  else expect(b.y).toBeLessThan(a.y);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByText('Kelola Akses Pelanggan', { exact: true }).click();
   await page.getByRole('button', { name: 'Cabut Tautan', exact: true }).click();

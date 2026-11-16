@@ -5,7 +5,7 @@ import { db } from './db.js';
 
 const states = new Set(['stopped','starting','qr','authenticated','ready','disconnected','error']);
 const codes = new Set([
-  'VALIDATION_ERROR','UNAUTHENTICATED','FORBIDDEN','NOT_FOUND','INTERNAL_ERROR','UPLOAD_INVALID','RATE_LIMITED','CONFLICT','WORKER_OFFLINE',
+  'ORDER_NOT_COMPLETED','FEEDBACK_EXISTS','VALIDATION_ERROR','UNAUTHENTICATED','FORBIDDEN','NOT_FOUND','INTERNAL_ERROR','UPLOAD_INVALID','RATE_LIMITED','CONFLICT','WORKER_OFFLINE',
   'INVALID_CREDENTIALS','INVALID_COMMAND','COMMAND_EXPIRED','NOT_READY','AUTH_FAILED','LOGOUT_FAILED','BROWSER_CLOSE_FAILED','SESSION_DELETE_FAILED',
   'BROWSER_PROFILE_LOCKED','BROWSER_PERMISSION_DENIED','BROWSER_NOT_FOUND','BROWSER_SANDBOX_FAILED','WHATSAPP_NETWORK_FAILED','INITIALIZATION_TIMEOUT','BROWSER_LAUNCH_FAILED','INITIALIZATION_FAILED','BROWSER_PROTOCOL_FAILED','WHATSAPP_PAGE_FAILED',
   'NOT_ENABLED','INVALID_WORKER_STATUS','PROVIDER_NOT_READY','ACTIVATION_CHANGED','NO_CUSTOMER','MESSAGE_UNAVAILABLE','TRACKING_CHANGED','NO_CURRENT_OPT_IN','RECIPIENT_CHANGED','STALE_ORDER','STALE_STATE','STALE_CONSENT','ATTEMPTS_EXHAUSTED','AMBIGUOUS_SEND_MANUAL_REVIEW','WORKER_RESTART_AMBIGUOUS_SEND','QR_PREPARATION_FAILED',
@@ -13,7 +13,7 @@ const codes = new Set([
 ]);
 // Templates are explicit: even short alphabetic tracking tokens must never pass as routes.
 const routes = new Set(['/unmatched', ...[
-  'display-settings','pricing/plans','pricing/plans/:id','pricing/preview','pricing/rates','whatsapp-templates','whatsapp-templates/preview','health','auth/login','auth/logout','auth/me','whatsapp/status','whatsapp/:command',
+  'feedback','track/:token/feedback','display-settings','pricing/plans','pricing/plans/:id','pricing/preview','pricing/rates','whatsapp-templates','whatsapp-templates/preview','health','auth/login','auth/logout','auth/me','whatsapp/status','whatsapp/:command',
   'pricing/plans/:id','customers','customers/:id','services','services/:id','users','users/:id','settings','orders','orders/:id','orders/:id/items',
   'orders/:id/tracking-token','orders/:id/tracking-token/rotate','orders/:id/tracking-token/revoke','orders/:id/payments','orders/:id/refunds',
   'items/:id','items/:id/assignment','items/:id/transition','items/:id/inspection','items/:id/consent/reissue','items/:id/consent/return','items/:id/photos',

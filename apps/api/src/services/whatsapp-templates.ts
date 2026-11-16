@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { pricingSnapshot, publicPricing } from './pricing.js';
 
 export const eventNames = {
-  ORDER_RECEIVED: 'Pesanan diterima', RECEIVED: 'Sepatu diterima', INSPECTION: 'Pemeriksaan dimulai',
+  ORDER_RECEIVED: 'Pesanan diterima', ORDER_HANDED_OVER: 'Seluruh pesanan diserahkan', RECEIVED: 'Sepatu diterima', INSPECTION: 'Pemeriksaan dimulai',
   QUEUED: 'Siap masuk antrean', AWAITING_CONSENT: 'Menunggu persetujuan', CONSENT_REQUEST: 'Permintaan persetujuan',
   WASHING: 'Pencucian dimulai', DRYING: 'Pengeringan', PACKING: 'Pengemasan dan pemeriksaan mutu', FINISHING: 'Penyelesaian akhir', QC: 'Pemeriksaan kualitas',
   REWORK: 'Perawatan ulang', READY_FOR_PICKUP: 'Siap diambil', ITEM_READY_FOR_PICKUP: 'Sepatu selesai QC dan pengemasan', HANDED_OVER: 'Sepatu diserahkan',
@@ -13,6 +13,7 @@ export const eventNames = {
 export const placeholderHelp = {
   sapaan: 'Sapaan pelanggan (Kak/Pak/Bu)', nama_pelanggan: 'Nama pelanggan', total_sepatu: 'Jumlah seluruh sepatu pada pesanan',
   detail_sepatu: 'Daftar seluruh sepatu; hanya template tingkat pesanan', nomor_pesanan: 'Nomor pesanan',
+  url_ulasan: 'Tautan privat halaman ulasan pesanan setelah seluruh sepatu diserahkan',
   url_tracking: 'Tautan privat; permintaan persetujuan menyertakan aksi sekali pakai',
   sepatu: 'Sepatu terkait event; seluruh sepatu untuk penerimaan pesanan',
   sisa_pembayaran: 'Sisa pembayaran dalam rupiah; hanya untuk template tagihan siap ambil',
@@ -23,6 +24,7 @@ export const placeholderHelp = {
   metode_penyerahan: 'Metode penyerahan tersimpan pada pesanan', lokasi_penyerahan: 'Lokasi penyerahan pada pesanan', catatan_penyerahan: 'Catatan penyerahan untuk pelanggan pada pesanan',
 } as const;
 const updates: Record<keyof typeof eventNames, string> = {
+  ORDER_HANDED_OVER: '',
   ORDER_RECEIVED: '{total_sepatu} pasang sepatu pada pesanan {nomor_pesanan} sudah kami terima.',
   RECEIVED: '{sepatu} sudah kami terima.', INSPECTION: 'Pemeriksaan {sepatu} sudah dimulai.',
   QUEUED: '{sepatu} sudah disetujui untuk perawatan dan masuk antrean.',
@@ -40,17 +42,33 @@ const updates: Record<keyof typeof eventNames, string> = {
   PICKUP_BILL_PAID: 'Sepatu yang dapat dikerjakan pada pesanan {nomor_pesanan} sudah selesai. Pembayaran sudah lunas.',
 };
 export const routineEvents = ['RECEIVED', 'INSPECTION', 'QUEUED', 'WASHING', 'DRYING', 'PACKING', 'FINISHING', 'QC', 'REWORK'] as const;
-export const defaults = Object.entries(eventNames).map(([event, name]) => ({ event, name, body: event === 'ORDER_RECEIVED' ? `Halo {sapaan} {nama_pelanggan},\n\nTerima kasih sudah mempercayakan sepatu Anda kepada Cicuci Sepatu. Pesanan Anda sudah kami terima.\n\n*Rincian pesanan*\nNomor pesanan: {nomor_pesanan}\nJumlah: {total_sepatu} pasang\nLayanan/tarif: {layanan_tarif}\nBiaya: {estimasi_total}\nPerkiraan selesai: {estimasi_selesai}\n\n{detail_sepatu}\n\nKami akan memeriksa kondisi sepatu sebelum pengerjaan.\n\n*Pantau pesanan Anda:*\n{url_tracking}\n\n_Terima kasih telah memilih Cicuci Sepatu._` : (routineEvents as readonly string[]).includes(event) ? `Halo {sapaan} {nama_pelanggan},\n\n${updates[event as keyof typeof updates]}\n\nNomor pesanan: {nomor_pesanan}\nPantau: {url_tracking}\n\n_Salam hangat,_\n*Cicuci Sepatu*` : `Halo {sapaan} {nama_pelanggan},\n\n${updates[event as keyof typeof updates]}${event.startsWith('PICKUP_BILL_') ? '\n\n{detail_sepatu}' : ''}\n\nPantau pesanan: {url_tracking}\n\nCicuci Sepatu` }));
+export const defaults = Object.entries(eventNames).map(([event, name]) => ({ event, name, body: event === 'ORDER_HANDED_OVER' ? `Halo {sapaan} {nama_pelanggan} 👋,
+
+Seluruh sepatu pada nomor pesanan _{nomor_pesanan}_ telah berhasil diserahkan kepada Anda.
+
+Terima kasih telah mempercayakan perawatan sepatu Anda kepada *Cicuci Sepatu*! 💛
+
+Kami ingin mendengar pendapat Anda mengenai hasil perawatan dan pelayanan kami.
+
+Silakan berikan rating ⭐ 1–5 dan ulasan singkat melalui halaman berikut:
+- {url_ulasan}
+
+_Masukan Anda sangat berarti untuk membantu kami meningkatkan kualitas pelayanan ke depannya. 😊_
+
+Sampai jumpa di perawatan sepatu berikutnya! 👟
+
+_Salam hangat,_
+*Cicuci Sepatu*` : event === 'ORDER_RECEIVED' ? `Halo {sapaan} {nama_pelanggan},\n\nTerima kasih sudah mempercayakan sepatu Anda kepada Cicuci Sepatu. Pesanan Anda sudah kami terima.\n\n*Rincian pesanan*\nNomor pesanan: {nomor_pesanan}\nJumlah: {total_sepatu} pasang\nLayanan/tarif: {layanan_tarif}\nBiaya: {estimasi_total}\nPerkiraan selesai: {estimasi_selesai}\n\n{detail_sepatu}\n\nKami akan memeriksa kondisi sepatu sebelum pengerjaan.\n\n*Pantau pesanan Anda:*\n{url_tracking}\n\n_Terima kasih telah memilih Cicuci Sepatu._` : (routineEvents as readonly string[]).includes(event) ? `Halo {sapaan} {nama_pelanggan},\n\n${updates[event as keyof typeof updates]}\n\nNomor pesanan: {nomor_pesanan}\nPantau: {url_tracking}\n\n_Salam hangat,_\n*Cicuci Sepatu*` : `Halo {sapaan} {nama_pelanggan},\n\n${updates[event as keyof typeof updates]}${event.startsWith('PICKUP_BILL_') ? '\n\n{detail_sepatu}' : ''}\n\nPantau pesanan: {url_tracking}\n\nCicuci Sepatu` }));
 // Reject control characters at the message trust boundary.
 // eslint-disable-next-line no-control-regex
 const cleanText = (value: string) => !/[\u0000-\u0008\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/u.test(value);
 export const templateBody = z.string().trim().min(20).max(2000).refine(cleanText, 'Karakter kontrol tidak diizinkan.').refine(value => {
   const rest = value.replace(/\{([a-z_]+)\}/g, (match, key: string) => Object.hasOwn(placeholderHelp, key) ? '' : match);
   return !/[{}]/.test(rest);
-}, 'Placeholder tidak dikenal atau kurung tidak lengkap.').refine(value => value.includes('{url_tracking}') && value.includes('Cicuci Sepatu'), 'Wajib menyertakan {url_tracking} dan Cicuci Sepatu.').refine(value => !/(?:https?:|www\.|<[^>]*>)/i.test(value), 'Gunakan {url_tracking}; URL literal dan HTML tidak diizinkan.');
-export const templateWrite = z.object({ event: z.enum(Object.keys(eventNames) as [keyof typeof eventNames, ...(keyof typeof eventNames)[]]), name: z.string().trim().min(1).max(80).refine(v => cleanText(v) && !/[{}<>\r\n]|https?:|www\./i.test(v), 'Nama tidak valid.'), body: templateBody }).strict().refine(v => v.event === 'PICKUP_BILL_UNPAID' ? v.body.includes('{sisa_pembayaran}') : !v.body.includes('{sisa_pembayaran}'), { path: ['body'], message: '{sisa_pembayaran} wajib untuk tagihan siap ambil dan tidak tersedia untuk peristiwa lain.' }).refine(v => v.event === 'ORDER_RECEIVED' || !/\{(?:layanan_tarif|estimasi_total|estimasi_selesai|rincian_harga)\}/.test(v.body), { path: ['body'], message: 'Placeholder estimasi hanya tersedia untuk penerimaan pesanan.' }).refine(v => v.event === 'ORDER_RECEIVED' || v.event.startsWith('PICKUP_BILL_') || !v.body.includes('{detail_sepatu}'), { path: ['body'], message: '{detail_sepatu} hanya tersedia untuk template tingkat pesanan.' });
+}, 'Placeholder tidak dikenal atau kurung tidak lengkap.').refine(value => (value.includes('{url_tracking}') || value.includes('{url_ulasan}')) && value.includes('Cicuci Sepatu'), 'Wajib menyertakan {url_tracking} atau {url_ulasan} dan Cicuci Sepatu.').refine(value => !/(?:https?:|www\.|<[^>]*>)/i.test(value), 'Gunakan placeholder tautan; URL literal dan HTML tidak diizinkan.');
+export const templateWrite = z.object({ event: z.enum(Object.keys(eventNames) as [keyof typeof eventNames, ...(keyof typeof eventNames)[]]), name: z.string().trim().min(1).max(80).refine(v => cleanText(v) && !/[{}<>\r\n]|https?:|www\./i.test(v), 'Nama tidak valid.'), body: templateBody }).strict().refine(v => v.event === 'PICKUP_BILL_UNPAID' ? v.body.includes('{sisa_pembayaran}') : !v.body.includes('{sisa_pembayaran}'), { path: ['body'], message: '{sisa_pembayaran} wajib untuk tagihan siap ambil dan tidak tersedia untuk peristiwa lain.' }).refine(v => v.event === 'ORDER_RECEIVED' || !/\{(?:layanan_tarif|estimasi_total|estimasi_selesai|rincian_harga)\}/.test(v.body), { path: ['body'], message: 'Placeholder estimasi hanya tersedia untuk penerimaan pesanan.' }).refine(v => v.event === 'ORDER_RECEIVED' || v.event.startsWith('PICKUP_BILL_') || !v.body.includes('{detail_sepatu}'), { path: ['body'], message: '{detail_sepatu} hanya tersedia untuk template tingkat pesanan.' }).refine(v => v.event === 'ORDER_HANDED_OVER' || (v.body.includes('{url_tracking}') && !v.body.includes('{url_ulasan}')), { path: ['body'], message: '{url_ulasan} hanya tersedia untuk penyerahan seluruh pesanan; template lain wajib {url_tracking}.' });
 export type Template = z.infer<typeof templateWrite>;
-export type Values = Record<Exclude<keyof typeof placeholderHelp, 'sisa_pembayaran' | 'layanan_tarif' | 'estimasi_total' | 'estimasi_selesai' | 'rincian_harga' | 'metode_penyerahan' | 'lokasi_penyerahan' | 'catatan_penyerahan'>, string> & Partial<Record<'sisa_pembayaran' | 'layanan_tarif' | 'estimasi_total' | 'estimasi_selesai' | 'rincian_harga' | 'metode_penyerahan' | 'lokasi_penyerahan' | 'catatan_penyerahan', string>>;
+export type Values = Record<Exclude<keyof typeof placeholderHelp, 'url_ulasan' | 'sisa_pembayaran' | 'layanan_tarif' | 'estimasi_total' | 'estimasi_selesai' | 'rincian_harga' | 'metode_penyerahan' | 'lokasi_penyerahan' | 'catatan_penyerahan'>, string> & Partial<Record<'url_ulasan' | 'sisa_pembayaran' | 'layanan_tarif' | 'estimasi_total' | 'estimasi_selesai' | 'rincian_harga' | 'metode_penyerahan' | 'lokasi_penyerahan' | 'catatan_penyerahan', string>>;
 export function renderTemplate(body: string, values: Values) {
   const message = templateBody.parse(body).replace(/\{([a-z_]+)\}/g, (_match, key: keyof Values) => z.string().parse(values[key]));
   return z.string().max(12000).parse(message);
@@ -106,4 +124,9 @@ export function trackingLink(origin: string, token: string, approval = '', itemI
   if (approval) { z.string().regex(/^[a-f0-9]{64}$/).parse(approval); url.hash = new URLSearchParams({ approval, item: itemId }).toString(); }
   return url.href;
 }
-export const previewValues: Values = { sapaan: 'Kak', nama_pelanggan: 'Dina (contoh)', total_sepatu: '2', detail_sepatu: '• Sepatu Contoh Biru\n• Sepatu Contoh Putih', nomor_pesanan: 'CONTOH-001', sepatu: 'Sepatu Contoh Biru', url_tracking: '[tautan privat pelanggan — contoh, tidak aktif]', sisa_pembayaran: 'Rp50.000', layanan_tarif: 'Cuci / Tarif contoh', estimasi_total: 'Rp90.000 (estimasi, belum final)', rincian_harga: '2 × Rp45.000 = Rp90.000', estimasi_selesai: '15 November 2026 WIB', metode_penyerahan: 'Janjian', lokasi_penyerahan: 'Lokasi contoh', catatan_penyerahan: 'Catatan contoh' };
+export function feedbackLink(origin: string, token: string) {
+  const url = new URL(trackingLink(origin, token));
+  url.pathname = `/feedback/${token}`;
+  return url.href;
+}
+export const previewValues: Values = { sapaan: 'Kak', nama_pelanggan: 'Dina (contoh)', total_sepatu: '2', detail_sepatu: '• Sepatu Contoh Biru\n• Sepatu Contoh Putih', nomor_pesanan: 'CONTOH-001', sepatu: 'Sepatu Contoh Biru', url_ulasan: '[tautan ulasan privat — contoh, tidak aktif]', url_tracking: '[tautan privat pelanggan — contoh, tidak aktif]', sisa_pembayaran: 'Rp50.000', layanan_tarif: 'Cuci / Tarif contoh', estimasi_total: 'Rp90.000 (estimasi, belum final)', rincian_harga: '2 × Rp45.000 = Rp90.000', estimasi_selesai: '15 November 2026 WIB', metode_penyerahan: 'Janjian', lokasi_penyerahan: 'Lokasi contoh', catatan_penyerahan: 'Catatan contoh' };

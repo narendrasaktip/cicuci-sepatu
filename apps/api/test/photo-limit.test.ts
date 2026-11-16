@@ -70,9 +70,9 @@ test('10 MiB image boundaries: real service, schema, bounded parsers and client;
     }
     await assert.rejects(parse(JSON.stringify(payload), '16kb'), { status: 413 });
 
-    // domain has no runtime imports/setup. FileReader mock avoids browser/network/files.
+    // Only the pure status helper is imported; FileReader mock avoids browser/network/files.
     const domainSource = readFileSync(new URL('../../web/src/services/domain.ts', import.meta.url), 'utf8');
-    assert.equal(/^import(?! type).*from/gm.test(domainSource), false);
+    assert.deepEqual(domainSource.match(/^import(?! type).*from.*$/gm), ["import { orderStatusCode, orderStatusLabels, orderStatusTone } from '../../../api/src/services/order-status';"]);
     const { photoInput } = await import(new URL('../../web/src/services/domain.ts', import.meta.url).href) as { photoInput(file: File): Promise<{ mime: string; base64: string }> };
     const original = Object.getOwnPropertyDescriptor(globalThis, 'FileReader'); let reads = 0;
     Object.defineProperty(globalThis, 'FileReader', { configurable: true, value: class {

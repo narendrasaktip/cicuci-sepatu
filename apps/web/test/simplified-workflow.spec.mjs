@@ -8,7 +8,7 @@ async function setup(page, status = 'RECEIVED') {
   const item = id => ({ id, serviceId: 'service', serviceName: 'Cuci', brand: 'Nike', model: id, color: 'Putih', status, outcome: status === 'RECEIVED' ? null : 'APPROVED', quotedPriceIdr: 50000, finalPriceIdr: status === 'RECEIVED' ? 0 : 50000, photos: [], consents: [], history: [] });
   const order = { id: 'order', number: 'CS-FIXTURE', customer: { name: 'Fixture', whatsapp: 'optout' }, estimatedCompletionAt: '2026-12-01T00:00:00Z', aggregateStatus: 'WAITING_INSPECTION', totalIdr: 0, paidIdr: 0, balanceIdr: 0, paymentStatus: 'UNPAID', items: [item('one'), item('two')], payments: [] };
   const calls = []; const saved = new Map(); let failUpload = false; let failSubmit = false; let loseUploadResponse = false;
-  await page.route('**/api/**', async route => {
+  await page.route('**/api/v1/**', async route => {
     const request = route.request(); const path = new URL(request.url()).pathname;
     let body = { data: [], page: { nextCursor: null } };
     if (path.endsWith('/auth/me')) body = { user: { id: 'owner', name: 'Fixture', role: 'OWNER' }, csrfToken: 'fixture' };
@@ -37,7 +37,6 @@ async function setup(page, status = 'RECEIVED') {
     await route.fulfill({ json: body });
   });
   await page.goto(`${origin}/admin`);
-  if (page.viewportSize().width < 768) await page.getByRole('button', { name: 'Menu', exact: true }).click();
   await page.getByRole('navigation').getByRole('button', { name: 'Pesanan', exact: true }).click();
   await page.getByRole('button', { name: 'CS-FIXTURE', exact: true }).click();
   return { order, calls, saved, failUpload: () => { failUpload = true; }, failSubmit: () => { failSubmit = true; }, loseUploadResponse: () => { loseUploadResponse = true; } };
@@ -95,14 +94,14 @@ test('multiple public findings retry without duplicating uploads', async ({ page
   ]);
   f.failSubmit(); await dialog.getByRole('button', { name: 'Simpan pemeriksaan' }).click();
   await expect(dialog.getByRole('alert')).toContainText('SUBMIT_FAILED');
-  expect(f.calls.filter(c => c.path.endsWith('/photos')).map(c => [c.payload.kind, c.payload.customerVisible])).toEqual([['BEFORE', true], ['BEFORE', true], ['BEFORE', true]]);
+  expect(f.calls.filter(c => c.path.endsWith('/photos')).map(c => [c.payload.kind, c.payload.customerVisible])).toEqual([['BEFORE', true], ['FINDINGS', true], ['FINDINGS', true]]);
   await dialog.getByRole('button', { name: 'Simpan pemeriksaan' }).click(); await expect(dialog).not.toBeVisible();
   expect(f.saved.size).toBe(3); expect(f.calls.filter(c => c.path.endsWith('/photos'))).toHaveLength(3);
 });
 test('risk photo automatic/private; risk pending has no start-work action', async ({ page }) => {
   const f = await setup(page); await page.locator('article.shoe').first().getByRole('button', { name: 'Periksa sepatu' }).click();
   const dialog = page.getByRole('dialog'); await dialog.getByLabel('Hasil pemeriksaan').selectOption('NEEDS_CONSENT');
-  await dialog.getByLabel('Temuan untuk Customer').fill('Warna rapuh'); await dialog.getByLabel('Risiko untuk Customer').fill('Luntur'); await dialog.getByLabel('Catatan pemeriksaan internal').fill('Rapuh');
+  await dialog.getByLabel('Temuan untuk Customer', { exact: true }).fill('Warna rapuh'); await dialog.getByLabel('Risiko untuk Customer').fill('Luntur'); await dialog.getByLabel('Catatan pemeriksaan internal').fill('Rapuh');
   await file(page, 'Foto sebelum pengerjaan'); await file(page, 'Foto risiko');
   await dialog.getByRole('button', { name: 'Simpan pemeriksaan' }).click(); await expect(dialog).not.toBeVisible();
   expect(f.calls.filter(c => c.path.endsWith('/photos')).map(c => [c.payload.kind, c.payload.customerVisible])).toEqual([['BEFORE', true], ['INSPECTION', false]]);
@@ -110,11 +109,11 @@ test('risk photo automatic/private; risk pending has no start-work action', asyn
 });
 test('rework offers legacy finishing transition', async ({ page }) => {
   const f = await setup(page, 'REWORK');
-  await page.locator('article.shoe').first().getByRole('button', { name: 'Pengeringan · finishing', exact: true }).click();
+  await page.locator('article.shoe').first().getByRole('button', { name: 'Pengeringan · Finishing', exact: true }).click();
   await expect.poll(() => f.calls.at(-1)?.payload.toStatus).toBe('FINISHING');
 });
 for (const status of ['DRYING', 'PACKING', 'FINISHING', 'QC']) test(`ready ${status}: confirmations, lost upload response retry, one saved photo, no premature transition`, async ({ page }) => {
-  const f = await setup(page, status); await page.locator('article.shoe').first().getByRole('button', { name: status === 'DRYING' ? 'Mulai pengemasan dan QC' : 'Siap diambil', exact: true }).click();
+  const f = await setup(page, status); await page.locator('article.shoe').first().getByRole('button', { name: status === 'DRYING' ? 'Mulai pengemasan dan QC' : 'Siap Diambil', exact: true }).click();
   expect(f.calls).toHaveLength(0);
   const dialog = page.getByRole('dialog'); await file(page, 'Foto sesudah pengerjaan');
   await dialog.getByRole('button', { name: 'Konfirmasi siap diambil' }).click(); expect(f.calls).toHaveLength(0);
@@ -137,11 +136,11 @@ test('rejected inspection zero-fee return action; mobile form stays within viewp
   await expect(dialog.getByLabel('Foto risiko', { exact: false })).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Simpan pemeriksaan' }).click(); await expect(dialog).not.toBeVisible();
   expect(f.order.items[0].finalPriceIdr).toBe(0);
-  await expect(page.locator('article.shoe').first()).toContainText('Tidak dicuci');
+  await expect(page.locator('article.shoe').first()).toContainText('Menunggu Pengembalian Sepatu');
   await expect(page.locator('article.shoe').first().getByRole('button', { name: 'Mulai pengerjaan' })).toHaveCount(0);
 });
 test('ready submit failure retains confirmations, saved AFTER reused, stable finalization key', async ({ page }) => {
-  const f = await setup(page, 'PACKING'); await page.locator('article.shoe').first().getByRole('button', { name: 'Siap diambil', exact: true }).click();
+  const f = await setup(page, 'PACKING'); await page.locator('article.shoe').first().getByRole('button', { name: 'Siap Diambil', exact: true }).click();
   const dialog = page.getByRole('dialog'); await file(page, 'Foto sesudah pengerjaan');
   for (const name of ['Sepatu sudah kering', 'Finishing selesai', 'Lulus pemeriksaan mutu (QC)']) await dialog.getByLabel(name).check();
   f.failSubmit(); await dialog.getByRole('button', { name: 'Konfirmasi siap diambil' }).click(); await expect(dialog.getByRole('alert')).toContainText('SUBMIT_FAILED');

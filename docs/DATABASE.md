@@ -1,5 +1,21 @@
 # Database — Cicuci Sepatu
 
+## Implementasi aktual — 16 November 2026
+
+Sumber otoritatif: `apps/api/prisma/schema.prisma` dan SQL pada `apps/api/prisma/migrations/`. Bagian desain di bawah merupakan rancangan historis, bukan representasi persis database berjalan: nama tabel aktual mengikuti model Prisma; foto disimpan pada `Photo.content`, bukan storage file; saldo dan status pembayaran dihitung dari ledger, bukan kolom saldo pada Order.
+
+Tambahan release lokal yang perlu dibandingkan dengan riwayat produksi sebelum migrasi:
+
+| Migrasi | Perubahan | Perlakuan data lama |
+|---|---|---|
+| `202611150001_order_feedback` | Tabel `Feedback`, relasi unik `orderId` ke `Order`, rating 1–5, review, waktu pembuatan | Tidak membuat ulasan contoh; satu ulasan per pesanan; ON DELETE CASCADE |
+| `202611160001_feedback_publication` | `Feedback.publicationConsent` | Default false, tidak menganggap pelanggan lama memberi izin publikasi |
+| `202611160002_feedback_visibility` | `Feedback.isPublished` | Default false, tidak menerbitkan ulasan otomatis |
+
+`AWAITING_PAYMENT` dan `REFUND_PENDING` merupakan status turunan tampilan/filter, bukan enum baru database. Sumbernya `aggregateStatus` dan saldo hasil ledger; perubahan ini tidak membutuhkan migrasi enum.
+
+Belum ada klaim migrasi tambahan ini terpasang pada produksi. Wajib backup konsisten, uji restore dan rehearsal MySQL 8 sebelum menerapkannya; jangan reset, seed, db push atau menyalin database development ke produksi.
+
 ## Konvensi
 
 - MySQL 8, `utf8mb4`, timezone koneksi UTC.

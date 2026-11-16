@@ -7,11 +7,14 @@ for (const presentation of ['classic', 'new']) for (const role of ['OWNER', 'ADM
   const order = { id: 'order', number: 'CS-OPTIONAL', customer: { name: 'Fixture' }, estimatedCompletionAt: '2026-12-01T00:00:00Z', aggregateStatus: 'QUEUED', pricing: { version: 1, mode: 'NORMAL', stage: 'FINAL', totalIdr: 50000 }, totalIdr: 50000, paidIdr: 0, balanceIdr: 50000, paymentStatus: 'UNPAID', items: [item], payments: [] };
   const unexpected = [], mutations = [], assignments = [], cancellations = [];
   await context.addInitScript(value => localStorage.setItem('cicuci-presentation', value), presentation);
-  await context.route('**/api/**', async route => {
+  await context.route('**/api/v1/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname.replace('/api/v1', '');
     let body;
     if (request.method() === 'GET' && path === '/auth/me') body = { user: { id: 'operator', name: 'Fixture', role }, csrfToken: 'fixture-only' };
     else if (request.method() === 'GET' && path === '/dashboard') body = {};
+    else if (request.method() === 'GET' && path === '/display-settings') body = {};
+    else if (request.method() === 'GET' && path === '/whatsapp/status') body = { state: 'ready', ready: true, realSendEnabled: false };
+    else if (request.method() === 'GET' && path === '/orders/order/tracking-token') body = { trackingToken: 'fixture-only-token' };
     else if (request.method() === 'GET' && path === '/orders') body = { data: [order], page: { nextCursor: null } };
     else if (request.method() === 'GET' && path === '/orders/order') body = order;
     else if (request.method() === 'GET' && ['/services', '/users'].includes(path)) body = { data: [], page: { nextCursor: null } };
@@ -33,33 +36,33 @@ for (const presentation of ['classic', 'new']) for (const role of ['OWNER', 'ADM
   await page.getByRole('navigation').getByRole('button', { name: 'Pesanan', exact: true }).click();
   await page.getByRole('button', { name: order.number, exact: true }).click();
   const start = page.getByRole('button', { name: 'Mulai pengerjaan', exact: true });
-  await expect(page.getByText('Petugas (opsional): Belum ditugaskan', { exact: true })).toBeVisible();
+  await expect(page.locator('article.shoe')).toContainText('Belum ditugaskan');
   if (role === 'STAFF') {
     // Deliberately overinclusive mocked response: UI must not expose unauthorized actions.
     await expect(start).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Batalkan cuci pasangan', exact: true })).toHaveCount(0);
     item.assignedUserId = 'another-staff';
-    await page.getByRole('button', { name: 'Muat ulang', exact: true }).click();
+    await page.reload();
     await expect(start).toHaveCount(0);
     item.assignedUserId = 'operator';
-    await page.getByRole('button', { name: 'Muat ulang', exact: true }).click();
+    await page.reload();
     await expect(start).toBeEnabled();
     await expect(page.getByRole('button', { name: 'Tugaskan (opsional)', exact: true })).toHaveCount(0);
   } else {
     await expect(start).toBeEnabled();
     for (const stage of ['ESTIMATE']) {
       order.pricing.stage = stage;
-      await page.getByRole('button', { name: 'Muat ulang', exact: true }).click();
+      await page.reload();
       await expect(start).toBeDisabled();
       await expect(page.getByText('Pengerjaan menunggu pemeriksaan lengkap dan persetujuan risiko.', { exact: true })).toBeVisible();
     }
     order.pricing.stage = 'FINAL';
-    await page.getByRole('button', { name: 'Muat ulang', exact: true }).click();
+    await page.reload();
     await expect(start).toBeEnabled();
-    const assign = page.getByRole('button', { name: 'Tugaskan (opsional)', exact: true });
-    const cancel = page.getByRole('button', { name: 'Batalkan cuci pasangan', exact: true });
+    const assign = page.getByRole('button', { name: 'Tugaskan (Opsional)', exact: true });
+    const cancel = page.getByRole('button', { name: 'Batalkan Cuci Pasangan', exact: true });
     const row = page.locator('article.shoe > .actions');
-    await expect(row.getByRole('button')).toHaveText(['Mulai pengerjaan', 'Tugaskan (opsional)']);
+    await expect(row.getByRole('button')).toHaveText(['Mulai pengerjaan', 'Tugaskan (Opsional)']);
     await expect(assign).toHaveClass('secondary');
     await expect(cancel).toHaveCount(0);
     await start.focus();
@@ -87,7 +90,8 @@ for (const presentation of ['classic', 'new']) for (const role of ['OWNER', 'ADM
     await expect(dialog).toHaveCount(0);
     expect(assignments).toEqual([{ assignedUserId: null }]);
     item.status = 'RECEIVED'; item.outcome = null;
-    await page.getByRole('button', { name: 'Muat ulang', exact: true }).click();
+    await page.reload();
+    await page.locator('article.shoe summary', { hasText: 'Detail Lainnya' }).click();
     await expect(cancel).toHaveClass('danger');
     await cancel.click();
     await expect(dialog.getByText('Biaya pasangan menjadi nol.', { exact: false })).toBeVisible();
@@ -99,18 +103,17 @@ for (const presentation of ['classic', 'new']) for (const role of ['OWNER', 'ADM
     await expect(dialog).toHaveCount(0);
     expect(cancellations).toEqual([]);
     item.status = 'QUEUED'; item.outcome = 'APPROVED';
-    await page.getByRole('button', { name: 'Muat ulang', exact: true }).click();
+    await page.reload();
     await expect(cancel).toHaveCount(0);
-    await page.locator('article.shoe summary', { hasText: 'Detail lainnya' }).click();
+    await page.locator('article.shoe summary', { hasText: 'Detail Lainnya' }).click();
     await expect(page.locator('article.shoe > details > .actions')).toHaveCount(0);
     await expect(page.getByRole('heading', { name: /Foto [Dd]okumentasi/ })).toBeVisible();
-    await expect(page.getByText('Riwayat status', { exact: true })).toBeVisible();
+    await expect(page.getByText('Riwayat Status', { exact: true })).toBeVisible();
   }
   await expect(page.getByRole('button', { name: 'Catat persetujuan harga', exact: true })).toHaveCount(0);
   await start.click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Konfirmasi', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  expect(mutations).toHaveLength(1);
+  await expect.poll(() => mutations.length).toBe(1);
   expect(mutations[0].body).toEqual({ reason: '', toStatus: 'WASHING' });
   expect(mutations[0].headers['x-csrf-token']).toBe('fixture-only');
   expect(mutations[0].headers['idempotency-key']).toMatch(/^[0-9a-f-]{36}$/);

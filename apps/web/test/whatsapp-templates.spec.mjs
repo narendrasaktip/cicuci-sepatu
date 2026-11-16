@@ -2,13 +2,13 @@ import process from 'node:process';
 import { test, expect } from '@playwright/test';
 test.use({ serviceWorkers: 'block', launchOptions: { executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' } });
 const initial = { event: 'ORDER_RECEIVED', name: 'Pesanan diterima', body: 'Halo Kak {nama_pelanggan}, {total_sepatu} pasang sudah diterima.\n{detail_sepatu}\n{url_tracking}\nCicuci Sepatu' };
-async function openWhatsApp(page) { await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible(); const menu = page.getByRole('button', { name: 'Menu', exact: true }); if (await menu.isVisible()) await menu.click(); await page.getByRole('button', { name: 'WhatsApp', exact: true }).click(); }
+async function openWhatsApp(page) { await page.getByRole('navigation', { name: 'Navigasi utama' }).getByRole('button', { name: 'WhatsApp', exact: true }).click(); }
 for (const role of ['OWNER', 'ADMIN']) for (const width of [390, 1024, 1280]) {
   test(`${role} templates preview/history/save responsive ${width}; never commands`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.addInitScript(() => localStorage.setItem('cicuci-presentation', 'new'));
     const commands = []; let saved = { ...initial }; let previews = 0; let history = 0;
-    await page.route('**/api/**', async route => {
+    await page.route('**/api/v1/**', async route => {
       const path = new URL(route.request().url()).pathname.replace('/api/v1', '');
       const method = route.request().method(); let body = { data: [], page: { nextCursor: null } };
       if (path === '/auth/me') body = { user: { id: 'template-user', name: 'Uji', role }, csrfToken: 'test' };

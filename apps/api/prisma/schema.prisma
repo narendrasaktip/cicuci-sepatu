@@ -174,8 +174,20 @@ model Order {
   items                 OrderItem[]
   payments              Payment[]
   notifications         NotificationEvent[]
+  feedback              Feedback?
 
   @@index([aggregateStatus, createdAt])
+}
+
+model Feedback {
+  id        String   @id @default(cuid()) @db.VarChar(30)
+  orderId   String   @unique @db.VarChar(30)
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  rating    Int      @db.UnsignedTinyInt
+  review    String   @db.VarChar(1000)
+  publicationConsent Boolean @default(false)
+  isPublished Boolean @default(false)
+  createdAt DateTime @default(now()) @db.DateTime(3)
 }
 
 model OrderItem {

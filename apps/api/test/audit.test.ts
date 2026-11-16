@@ -27,7 +27,7 @@ test('audit boundaries: isolated HTTP and fail-closed fake DB only', async t => 
       if (failSession) throw new Error(secret);
       return { user: { id: 'fixture-owner', name: 'Fixture Owner', role, isActive: true }, csrfToken: 'fixture-csrf', expiresAt: new Date(Date.now() + 60000) };
     } },
-    user: { findMany: async (query: Record<string, unknown>) => { assert.deepEqual(query, { where: { id: { in: rows.length ? ['fixture-owner','fixture-owner'] : [] } }, select: { id: true, name: true } }); return [{ id: 'fixture-owner', name: 'Fixture Owner' }]; } },
+    user: { findMany: async (query: Record<string, unknown>) => { assert.deepEqual(query, { where: { id: { in: rows.length ? ['fixture-owner','fixture-owner'] : [] } }, select: { id: true, name: true, email: true } }); return [{ id: 'fixture-owner', name: 'Fixture Owner', email: 'owner@example.invalid' }]; } },
     notificationEvent: { findMany: async () => [{ id: 'event', provider: 'whatsapp-web.js', template: 'ORDER_RECEIVED', recipient: '+628123456789', status: 'FAILED', eventKey: 'fixture', createdAt: new Date(), encryptedMessage: secret, attempts: [{ id: 'attempt', attemptNo: 1, status: 'FAILED', attemptedAt: new Date(), response: { actualOutbound: 'unknown', error: 'AMBIGUOUS_SEND_MANUAL_REVIEW', password: secret } }] }] },
     order: { findUnique: async () => null },
   }, { get(target, key, receiver) { if (!Reflect.has(target, key)) { unexpected.push(String(key)); throw new Error(`Unexpected DB access: ${String(key)}`); } return Reflect.get(target, key, receiver); } });
@@ -175,7 +175,7 @@ test('audit boundaries: isolated HTTP and fail-closed fake DB only', async t => 
         const result = await call(`/api/v1/audit?${params}`, { headers: cookie });
         assert.equal(result.response.status, 200); assert.equal(result.body.data.length, 1);
         assert.deepEqual(result.body.page, { nextCursor: 'fixture-a' });
-        assert.deepEqual(result.body.data[0].actorUser, { id: 'fixture-owner', name: 'Fixture Owner' });
+        assert.deepEqual(result.body.data[0].actorUser, { id: 'fixture-owner', name: 'Fixture Owner', email: 'owner@example.invalid' });
         assert.equal(result.body.data[0].createdAt, occurredAt.toISOString());
         assert.deepEqual(queries.pop(), { where: { action: 'API_ERROR', entityType: 'Request', occurredAt: { gte: new Date(from), lte: new Date(to) }, AND: [{ OR: [{ action: { contains: 'API' } }, { entityType: { contains: 'API' } }, { entityId: { contains: 'API' } }] }, { OR: [{ metadata: { path: '$.outcome', equals: 'FAILED' } }, { action: 'LOGIN_FAILED' }] }, { metadata: { path: '$.requestId', equals: requestId } }] }, take: 2, cursor: { id: 'fixture-cursor' }, skip: 1, orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }] });
         for (const query of ['requestId=secret','outcome=secret','limit=101',`from=${to}&to=${from}`,'unknown=secret']) assert.equal((await call(`/api/v1/audit?${query}`, { headers: cookie })).response.status, 400);

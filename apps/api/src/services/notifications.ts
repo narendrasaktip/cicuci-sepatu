@@ -1,3 +1,4 @@
+import { physicallyCompleted } from './orders.js';
 import { broadcastPayload, deliveryPayload, unseal } from './whatsapp-templates.js';
 import { recordActivity } from '../lib/audit.js';
 import { sendDiagnostic } from '../integrations/whatsapp/diagnostics.js';
@@ -29,8 +30,9 @@ export async function deliverNotification(id: string, generation: number, real?:
     if (event.provider === 'whatsapp-web.js' && !order && !broadcast) skip = 'NO_CUSTOMER';
     if (!event.optedIn || (order && !order.customer.notificationConsentAt)) skip = 'NO_CURRENT_OPT_IN';
     if (order && order.customer.whatsapp !== event.recipient) skip = 'RECIPIENT_CHANGED';
-    if (order?.aggregateStatus === 'COMPLETED' && event.template !== 'HANDED_OVER' && event.template !== 'RETURNED') skip = 'STALE_ORDER';
+    if (order?.aggregateStatus === 'COMPLETED' && event.template !== 'ORDER_HANDED_OVER' && event.template !== 'HANDED_OVER' && event.template !== 'RETURNED') skip = 'STALE_ORDER';
     if (['READY_FOR_PICKUP', 'PICKUP_BILL_UNPAID', 'PICKUP_BILL_PAID'].includes(event.template) && order?.aggregateStatus !== 'READY_FOR_PICKUP') skip = 'STALE_ORDER';
+    if (event.template === 'ORDER_HANDED_OVER' && (!order || !physicallyCompleted(await tx.orderItem.findMany({ where: { orderId: order.id }, select: { status: true } })))) skip = 'STALE_ORDER';
     // Order row lock serializes financial claims; unresolved submissions fence later sends.
     if (!skip && order && ['PICKUP_BILL_UNPAID', 'PICKUP_BILL_PAID'].includes(event.template)) {
       const others = await tx.notificationEvent.findMany({ where: { orderId: order.id, id: { not: id }, provider: 'whatsapp-web.js', template: { in: ['PICKUP_BILL_UNPAID', 'PICKUP_BILL_PAID'] }, status: { in: ['PROCESSING', 'FAILED'] } }, include: { attempts: true } });

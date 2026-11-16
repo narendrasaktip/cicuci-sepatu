@@ -12,17 +12,17 @@ for (const width of [320, 390, 1440]) {
     const calls = [];
     const requests = [];
     page.on('request', request => requests.push(request.url()));
-    await page.route('**/api/**', route => { calls.push(route.request().url()); return route.fulfill({ status: 501 }); });
+    await page.route('**/api/v1/**', route => { calls.push(route.request().url()); return route.fulfill({ status: 501 }); });
     await page.setViewportSize({ width, height: 900 });
     await page.goto(origin);
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Sepatu Kotor?');
-    for (const name of ['Layanan Cicuci Sepatu', 'Cara Kerja', 'Yuk, Cicuci-in Sepatumu!']) await expect(page.getByRole('heading', { name })).toBeVisible();
-    await expect(page.getByText('Kontak WhatsApp belum tersedia.', { exact: false })).toBeVisible();
-    await expect(page.locator('a[href^="https://wa.me/"]')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Cara Pesan' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Pesan Sekarang' }).first()).toHaveAttribute('href', '/pesan');
+    await expect(page.locator('a[href*="phone=6285179963343"]').first()).toBeVisible();
     await expect(page.locator('header a[href^="/admin"], footer a[href^="/admin"]')).toHaveCount(0);
     await expect(page.getByRole('link', { name: /admin/i })).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    expect(calls).toEqual([]);
+    expect(calls.every(url => new URL(url).pathname === '/api/v1/public/feedback')).toBe(true);
     expect(requests.some(url => /AdminWorkspace|PublicTracking|fonts\.google/.test(url))).toBe(false);
     for (const image of await page.locator('main img, header img').all()) expect(await image.evaluate(el => el.complete && el.naturalWidth > 0)).toBe(true);
     await page.getByRole('link', { name: 'Lewati ke konten' }).focus();
@@ -50,24 +50,19 @@ for (const number of ['', '6281234567890', ' 6281234567890 ', '+6281234567890', 
       await server.listen();
       await page.goto(server.resolvedUrls.local[0]);
       await expect(page.getByRole('heading', { level: 1 })).toContainText('Sepatu Kotor?');
-      const contact = page.getByRole('link', { name: 'Hubungi melalui WhatsApp', exact: false });
-      if (number.trim() === '6281234567890') {
-        await expect(contact).toHaveAttribute('href', 'https://wa.me/6281234567890');
-        await expect(contact).toHaveAttribute('target', '_blank');
-        await expect(contact).toHaveAttribute('rel', 'noopener noreferrer');
-        await expect(page.getByText('Kontak WhatsApp belum tersedia.', { exact: false })).toHaveCount(0);
-      } else {
-        await expect(contact).toHaveCount(0);
-        await expect(page.getByText('Kontak WhatsApp belum tersedia.', { exact: false })).toBeVisible();
-      }
-      expect(outbound).toEqual([]);
+      const link = page.locator('a[href*="phone=6285179963343"]').first();
+      await expect(link).toBeVisible();
+      const destination = new URL(await link.getAttribute('href'));
+      expect(destination.hostname).toBe('api.whatsapp.com');
+      expect(destination.searchParams.get('phone')).toBe('6285179963343');
+      expect(outbound.every(url => new URL(url).pathname === '/api/v1/public/feedback')).toBe(true);
     } finally { await server.close(); }
   });
 }
 
 
 test('admin dan tracking tetap dapat diakses langsung', async ({ page }) => {
-  await page.route('**/api/**', route => route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } }) }));
+  await page.route('**/api/v1/**', route => route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } }) }));
   await page.goto(`${origin}/admin`);
   await expect(page.getByRole('heading', { name: 'Masuk Cicuci Admin' })).toBeVisible();
   await page.goto(`${origin}/track/private-test-token`);

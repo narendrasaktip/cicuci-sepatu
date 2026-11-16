@@ -4,11 +4,12 @@ import { test, expect } from '@playwright/test';
 test.use({ serviceWorkers: 'block', launchOptions: { executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' } });
 for (const tab of ['Dashboard', 'Pesanan']) test(`${tab}: overdue is a status choice, never an API status`, async ({ page, context }) => {
   const unexpected = [], queries = [];
-  await context.route('**/api/**', async route => {
+  await context.route('**/api/v1/**', async route => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname.replace('/api/v1', '');
     let body;
     if (request.method() === 'GET' && path === '/auth/me') body = { user: { id: 'admin', name: 'Admin', role: 'ADMIN' }, csrfToken: 'fixture-only' };
     else if (request.method() === 'GET' && path === '/dashboard') body = { activeOrders: 0, revenueIdr: 0 };
+    else if (request.method() === 'GET' && path === '/display-settings') body = {};
     else if (request.method() === 'GET' && path === '/orders') {
       queries.push(Object.fromEntries(url.searchParams));
       body = { data: [], page: { nextCursor: url.searchParams.has('cursor') ? null : 'fixture-next' } };
@@ -19,7 +20,7 @@ for (const tab of ['Dashboard', 'Pesanan']) test(`${tab}: overdue is a status ch
   });
   await page.goto(`${process.env.TEST_WEB_ORIGIN ?? 'http://127.0.0.1:5173'}/admin`);
   const navigation = page.getByRole('navigation', { name: 'Navigasi utama' });
-  const apply = page.getByRole('button', { name: 'Terapkan / muat ulang', exact: true });
+  const apply = page.getByRole('button', { name: 'Cari', exact: true });
   const status = page.getByRole('combobox', { name: 'Status', exact: true });
   await expect(apply).toBeEnabled();
   if (tab === 'Pesanan') {
@@ -30,13 +31,13 @@ for (const tab of ['Dashboard', 'Pesanan']) test(`${tab}: overdue is a status ch
     await expect(page.getByRole('region', { name: 'Metrik operasional' }).locator('strong').last()).toHaveText(/Rp\s*0/);
   }
   await expect(page.getByRole('checkbox', { name: 'Hanya terlambat' })).toHaveCount(0);
-  await expect(status.locator('option[value="OVERDUE"]')).toHaveText('Hanya terlambat');
+  await expect(status.locator('option[value="OVERDUE"]')).toHaveText('Hanya Terlambat');
   const check = async (action, expected) => {
     const count = queries.length;
     await action();
     await expect.poll(() => queries.length).toBe(count + 1);
     await expect(apply).toBeEnabled();
-    expect(queries.at(-1)).toEqual({ limit: '25', ...expected });
+    expect(queries.at(-1)).toEqual({ limit: '25', sort: 'createdAt', direction: 'desc', ...expected });
   };
   await status.selectOption('OVERDUE');
   await check(() => apply.click(), { overdue: 'true' });
@@ -57,10 +58,10 @@ for (const tab of ['Dashboard', 'Pesanan']) test(`${tab}: overdue is a status ch
   await check(() => navigation.getByRole('button', { name: tab === 'Dashboard' ? 'Pesanan' : 'Dashboard', exact: true }).click(), { sort: 'estimatedCompletionAt', direction: 'asc' });
   await expect(status).toHaveValue('');
   await navigation.getByRole('button', { name: 'WhatsApp', exact: true }).click();
-  await page.getByText('Riwayat pengiriman', { exact: true }).click();
-  await expect(apply).toBeEnabled();
+  await page.getByRole('button', { name: 'Riwayat Pengiriman', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Terapkan / muat ulang', exact: true })).toBeEnabled();
   await expect(status.locator('option[value="OVERDUE"]')).toHaveCount(0);
-  await expect(status.locator('option')).toHaveText(['Semua status', 'Menunggu antrean', 'Sedang diajukan ke browser', 'Simulasi berhasil', 'Gagal', 'Dilewati', 'Diajukan ke browser (belum bukti diterima)']);
+  await expect(status.locator('option')).toHaveText(['Semua Status', 'Menunggu Antrean', 'Sedang Diajukan Ke Browser', 'Simulasi Berhasil', 'Gagal', 'Dilewati', 'Diajukan Ke Browser (Belum Bukti Diterima)']);
   expect(queries.every(query => query.status !== 'OVERDUE')).toBe(true);
   expect(unexpected).toEqual([]);
 });

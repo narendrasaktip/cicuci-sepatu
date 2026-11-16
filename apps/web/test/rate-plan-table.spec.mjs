@@ -18,11 +18,13 @@ async function start(page, context, role = 'OWNER') {
     { id: 'regular', name: 'Fast bernama, kebijakan reguler', isActive: true, revision: 7, turnaroundPolicy: 'REGULAR', rules: structuredClone(rules) },
     { id: 'inactive', name: longName, isActive: false, revision: 2, rules: structuredClone(rules) },
   ] };
-  await context.route('**/api/**', async route => {
+  await context.route('**/api/v1/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname.replace('/api/v1', ''), method = request.method();
     let body;
     if (method === 'GET' && path === '/auth/me') body = { user: { id: 'fixture', name: 'Fixture', role }, csrfToken: 'fixture-only' };
     else if (method === 'GET' && path === '/dashboard') body = {};
+    else if (method === 'GET' && path === '/display-settings') body = {};
+    else if (method === 'GET' && path === '/whatsapp/status') body = { state: 'ready', ready: true, realSendEnabled: false };
     else if (method === 'GET' && path === '/orders') body = { data: [], page: { nextCursor: null } };
     else if (method === 'GET' && path === '/services') body = { data: [{ id: 'legacy', name: 'Layanan historis', isActive: false, basePriceIdr: 999999 }], page: { nextCursor: null } };
     else if (method === 'GET' && path === '/pricing/plans') {
@@ -43,7 +45,7 @@ async function start(page, context, role = 'OWNER') {
     await route.fulfill({ status: body === undefined ? 501 : 200, json: body ?? { error: { code: 'UNMOCKED' } } });
   });
   await page.goto(`${origin}/admin`);
-  await page.getByLabel('Tampilan', { exact: true }).selectOption('new');
+  await expect(page.getByLabel('Tampilan', { exact: true })).toHaveCount(0);
   const menu = page.getByRole('button', { name: 'Menu', exact: true });
   if (await menu.isVisible()) await menu.click();
   await page.getByRole('navigation').getByRole('button', { name: 'Tarif Pesanan', exact: true }).click();
@@ -59,8 +61,8 @@ function clean(state) { expect(state.unexpected).toEqual([]); }
 for (const width of [320, 390, 768, 1440]) test(`compact semantic prices, exact estimate disclosure, keyboard and responsive ${width}`, async ({ page, context }, info) => {
   await page.setViewportSize({ width, height: 1000 });
   const state = await start(page, context);
-  await expect(page.getByRole('heading', { name: 'Daftar Tarif', exact: true })).toBeVisible();
-  await expect(page.getByText('Lanjutan: layanan lama', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Tarif Pesanan', exact: true })).toBeVisible();
+  await expect(page.getByText('Lanjutan: layanan lama', { exact: true })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Halaman data' })).toHaveCount(0);
   await expect(page.locator('.rate-table > table > thead th')).toHaveText(['Nama Tarif', 'Status', 'Estimasi', 'Rincian Harga', 'Aksi']);
   expect(await page.locator('.rate-table thead th').evaluateAll(els => els.every(el => el.scope === 'col'))).toBe(true);
@@ -82,9 +84,9 @@ for (const width of [320, 390, 768, 1440]) test(`compact semantic prices, exact 
   await page.getByLabel('Detail estimasi Fast bernama, kebijakan reguler', { exact: true }).click();
   await expect(regular.getByText(regularText, { exact: true })).toBeVisible();
   await page.getByLabel('Detail estimasi Fast bernama, kebijakan reguler', { exact: true }).click();
-  await page.getByText('Ketentuan tarif & pesanan lama', { exact: true }).click();
-  await expect(page.getByText(/Perubahan tarif tidak mengubah harga dan aturan/)).toBeVisible();
-  await page.getByText('Ketentuan tarif & pesanan lama', { exact: true }).click();
+  await edit(page, 'Promo Kilat').click();
+  await expect(page.getByText(/Harga tersimpan pada pesanan lama tidak berubah/)).toBeVisible();
+  page.once('dialog', dialog => dialog.accept()); await page.getByRole('dialog').getByRole('button', { name: 'Batal', exact: true }).click();
   await page.keyboard.press('Tab');
   for (const button of [edit(page, 'Promo Kilat'), trash(page, 'Promo Kilat')]) {
     await button.focus(); const box = await button.boundingBox(); expect(box.height).toBeGreaterThanOrEqual(44);
@@ -92,7 +94,7 @@ for (const width of [320, 390, 768, 1440]) test(`compact semantic prices, exact 
     expect(await button.evaluate(el => getComputedStyle(el).outlineStyle)).not.toBe('none');
   }
   await page.screenshot({ path: info.outputPath(`rate-actions-${width}.png`), fullPage: true });
-  clean(state); expect(state.mutations).toEqual([]); expect(state.previews).toEqual([]);
+  clean(state); expect(state.mutations).toEqual([]); expect(state.previews).toEqual([{ pairs: 1, rules: state.plans[0].rules }]);
 });
 
 for (const role of ['OWNER', 'ADMIN', 'STAFF']) test(`rate actions permissions and Classic ${role}`, async ({ page, context }, info) => {
@@ -100,12 +102,9 @@ for (const role of ['OWNER', 'ADMIN', 'STAFF']) test(`rate actions permissions a
   await expect(trash(page, 'Promo Kilat')).toHaveCount(role === 'OWNER' ? 1 : 0);
   await expect(edit(page, 'Promo Kilat')).toHaveCount(role === 'OWNER' ? 1 : 0);
   await expect(page.getByRole('button', { name: 'Tambah Tarif', exact: true })).toHaveCount(role === 'OWNER' ? 1 : 0);
-  await page.getByLabel('Tampilan', { exact: true }).selectOption('classic');
-  await expect(region(page)).toHaveCount(0);
-  const card = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Promo Kilat', exact: true }) });
-  await expect(card.getByText(fastText, { exact: true })).toBeVisible();
-  await expect(card.getByText(/Paket 1 pasang · harga total paket/)).toBeVisible();
-  await expect(card.getByRole('button', { name: 'Ubah tarif / keaktifan', exact: true })).toHaveCount(role === 'OWNER' ? 1 : 0);
+  await page.evaluate(() => localStorage.setItem('cicuci-presentation', 'classic')); await page.reload();
+  await expect(region(page)).toBeVisible();
+  await expect(edit(page, 'Promo Kilat')).toHaveCount(role === 'OWNER' ? 1 : 0);
   if (role === 'OWNER') await page.screenshot({ path: info.outputPath('classic-rates.png'), fullPage: true });
   clean(state); expect(state.mutations).toEqual([]);
 });
@@ -128,40 +127,37 @@ test('shared editor preserves raw rules, policy, activation, revision, preview, 
   await page.getByRole('button', { name: 'Tambah Tarif', exact: true }).click();
   await page.getByLabel('Nama tarif *').fill('Tarif baru bebas');
   await page.getByLabel('Harga total paket (Rp)').fill('54321');
-  await page.getByRole('button', { name: 'Tambah aturan', exact: true }).click();
-  await page.getByLabel('Minimal pasang', { exact: true }).fill('5');
+  await page.getByRole('button', { name: 'Tambah Aturan', exact: true }).click();
+  await page.getByLabel('Jenis Aturan').last().selectOption('PER_PAIR');
+  await page.getByLabel('Minimal Pasang', { exact: true }).fill('5');
   await page.getByLabel('Maksimal pasang (kosong = tanpa batas)').fill('3');
   await expect(page.getByRole('button', { name: 'Simpan', exact: true })).toBeDisabled();
-  await page.getByRole('button', { name: 'Hapus aturan 2', exact: true }).click();
-  // Native modal intentionally makes the theme selector inert; simulate an external presentation change.
-  await page.getByLabel('Tampilan', { exact: true }).evaluate(el => { el.value = 'classic'; el.dispatchEvent(new Event('change', { bubbles: true })); });
-  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Hapus Aturan 2', exact: true }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.getByLabel('Nama tarif *')).toHaveValue('Tarif baru bebas');
-  await page.getByLabel('Tampilan', { exact: true }).selectOption('new');
   await page.getByRole('button', { name: 'Simpan', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Tarif baru bebas', exact: true })).toBeVisible();
   expect(state.mutations[1].input).toEqual({ name: 'Tarif baru bebas', isActive: true, turnaroundPolicy: 'REGULAR', rules: [{ kind: 'PACKAGE', minPairs: 1, maxPairs: 1, priceIdr: 54321 }] });
-  await expect(page.getByText('Lanjutan: layanan lama', { exact: true })).toHaveCount(0);
-  await page.getByLabel('Tampilan', { exact: true }).selectOption('classic');
+  await expect(page.getByText('Lanjutan: layanan lama', { exact: true })).toBeVisible();
   await page.getByText('Lanjutan: layanan lama', { exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Layanan historis', exact: true })).toBeVisible();
-  await page.getByLabel('Tampilan', { exact: true }).selectOption('new');
-  await expect(page.getByText('Lanjutan: layanan lama', { exact: true })).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'Layanan historis', exact: true })).toHaveCount(0);
+  await page.getByText('Lanjutan: layanan lama', { exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Layanan historis', exact: true })).not.toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Halaman data' })).toHaveCount(0);
   clean(state);
 });
 
-test('direct delete without confirmation; reload, empty, failure recovery', async ({ page, context }) => {
+test('explicit delete confirmation; reload, empty, failure recovery', async ({ page, context }) => {
   const state = await start(page, context);
+  page.once('dialog', dialog => dialog.dismiss()); await trash(page, 'Promo Kilat').click(); expect(state.mutations).toEqual([]);
+  page.once('dialog', dialog => dialog.accept('HAPUS'));
   await trash(page, 'Promo Kilat').click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByRole('alert')).toContainText('Fixture dilindungi.');
   expect(state.mutations).toEqual([{ method: 'DELETE', path: '/pricing/plans/fast', input: { confirmed: true, confirmation: 'HAPUS' } }]);
-  const reload = page.getByRole('button', { name: 'Muat Ulang', exact: true });
-  state.empty = true; await reload.click(); await expect(page.getByText('Belum ada tarif.', { exact: true })).toBeVisible();
-  state.fail = true; await reload.click(); await expect(page.getByRole('alert')).toContainText('Tarif fixture gagal.');
-  state.fail = false; state.empty = false; await reload.click(); await expect(region(page)).toBeVisible();
+  state.empty = true; await page.reload(); await expect(page.getByText('Belum ada tarif.', { exact: true })).toBeVisible();
+  state.fail = true; await page.reload(); await expect(page.getByRole('alert')).toContainText('Tarif fixture gagal.');
+  state.fail = false; state.empty = false; await page.reload(); await expect(region(page)).toBeVisible();
   clean(state);
 });
 
@@ -185,15 +181,16 @@ for (const width of [320, 390, 1440]) test(`rate editor modal focus, cancel, bac
   await expect(dialog.getByRole('button', { name: 'Batal', exact: true })).toBeFocused();
   await page.keyboard.press('Tab'); await expect(name).toBeFocused();
   await page.mouse.click(2, 2); await expect(dialog).toBeVisible();
+  page.once('dialog', dialog => dialog.accept());
   await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0); await expect(opener).toBeFocused();
-  await opener.click(); await dialog.getByRole('button', { name: 'Batal', exact: true }).click();
+  await opener.click(); page.once('dialog', dialog => dialog.accept()); await dialog.getByRole('button', { name: 'Batal', exact: true }).click();
   await expect(opener).toBeFocused();
   const add = page.getByRole('button', { name: 'Tambah Tarif', exact: true });
   await add.click();
   const adding = page.getByRole('dialog', { name: 'Tambah Tarif', exact: true });
   await expect(adding.getByLabel('Nama tarif *')).toBeFocused();
   await expect(adding.getByLabel('Nama tarif *')).toHaveValue('');
-  await adding.getByRole('button', { name: 'Batal', exact: true }).click();
+  page.once('dialog', dialog => dialog.accept()); await adding.getByRole('button', { name: 'Batal', exact: true }).click();
   await expect(add).toBeFocused();
   clean(state); expect(state.mutations).toEqual([]);
 });

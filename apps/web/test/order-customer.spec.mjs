@@ -9,12 +9,18 @@ const db = new PrismaClient();
 const origin = process.env.TEST_WEB_ORIGIN ?? process.env.APP_BASE_URL ?? 'http://127.0.0.1:5173';
 const prefix = `web-${randomUUID()}`;
 const password = `Browser-${randomUUID()}`;
-let owner; let service;
+let owner; let service; let plan;
 const sessionToken = randomBytes(32).toString('hex');
 const errors = []; const keys = new Set();
+function assertLocalDatabase() {
+  const url = new URL(process.env.DATABASE_URL);
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || url.pathname !== '/cicuci_sepatu_dev' || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(origin).hostname)) throw new Error('Customer tests require local web and cicuci_sepatu_dev database');
+}
 test.beforeAll(async () => {
+  assertLocalDatabase();
   owner = await db.user.create({ data: { name: prefix, email: `${prefix}@example.test`, passwordHash: await argon2.hash(password), role: 'OWNER' } });
   service = await db.service.create({ data: { name: `${prefix}-clean`, basePriceIdr: 50000 } });
+  plan = await db.ratePlan.create({ data: { name: prefix, rules: [{ kind: 'PACKAGE', minPairs: 1, maxPairs: 1, priceIdr: 50000 }] } });
   await db.session.create({ data: { userId: owner.id, tokenHash: createHash('sha256').update(sessionToken).digest('hex'), csrfToken: randomUUID(), expiresAt: new Date(Date.now() + 3600000) } });
 });
 test.afterAll(async () => {
@@ -32,7 +38,8 @@ test.afterAll(async () => {
   await db.orderItem.deleteMany({ where: { id: { in: itemIds } } });
   await db.order.deleteMany({ where: { id: { in: orderIds } } });
   await db.customer.deleteMany({ where: { id: { in: customers.map(c => c.id) } } });
-  await db.service.deleteMany({ where: { id: service?.id } });
+  if (service) await db.service.delete({ where: { id: service.id } });
+  if (plan) await db.ratePlan.delete({ where: { id: plan.id } });
   const sessions = await db.session.findMany({ where: { userId: owner.id } });
   const { createHash } = await import('node:crypto');
   for (const session of sessions) for (const key of keys) await db.idempotency.deleteMany({ where: { id: createHash('sha256').update(`${owner.id}:${session.csrfToken}:${key}`).digest('hex') } });
@@ -44,17 +51,17 @@ test.afterAll(async () => {
 async function login(page) {
   await page.context().addCookies([{ name: 'cicuci_session', value: sessionToken, url: origin, httpOnly: true, sameSite: 'Lax' }]);
   await page.goto(`${origin}/admin`);
-  await expect(page.getByRole('heading', { name: 'Ringkasan', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
 }
 async function openNewOrder(page) {
   const nav = page.getByRole('navigation', { name: 'Navigasi utama' });
   await nav.getByRole('button', { name: 'Pesanan', exact: true }).click();
-  await page.getByRole('button', { name: 'Pesanan baru', exact: true }).click();
+  await page.getByRole('button', { name: 'Pesanan Baru', exact: true }).click();
 }
 async function fillShoe(page) {
   await expect(page.locator('input[type="datetime-local"]')).toHaveCount(0);
   const shoe = page.getByRole('group', { name: 'Sepatu 1', exact: true });
-  await shoe.getByRole('combobox').selectOption({ value: service.id });
+  await page.getByRole('group', { name: 'Tarif dan estimasi' }).getByRole('combobox').selectOption({ value: plan.id });
   await shoe.getByLabel('Merek *', { exact: true }).fill('Nike');
   await shoe.getByLabel('Model (opsional)', { exact: true }).fill('Air');
   await shoe.getByLabel('Warna (opsional)', { exact: true }).fill('Putih');
@@ -91,7 +98,7 @@ test('order creation: search existing customer and inline new customer with retr
   expect(await db.order.count({ where: { customerId: existing.id } })).toBe(1);
 
   await openNewOrder(page);
-  await page.getByLabel('Pelanggan baru', { exact: true }).check();
+  await page.getByLabel('Pelanggan Baru', { exact: true }).check();
   await page.getByLabel('Nama *', { exact: true }).fill(`${prefix}-baru`);
   await page.getByLabel('Nomor WhatsApp *', { exact: true }).fill('081222222222');
   await expect(page.getByLabel('Pelanggan menyetujui notifikasi WhatsApp', { exact: true })).not.toBeChecked();
@@ -126,7 +133,7 @@ test('mobile and keyboard: mode radios, search field, no overflow', async ({ pag
   await expect(page.getByLabel('Pelanggan lama', { exact: true })).toBeEnabled();
   await page.getByLabel('Pelanggan lama', { exact: true }).focus();
   await page.keyboard.press('ArrowRight');
-  await expect(page.getByLabel('Pelanggan baru', { exact: true })).toBeChecked();
+  await expect(page.getByLabel('Pelanggan Baru', { exact: true })).toBeChecked();
   await expect(page.getByLabel('Nomor WhatsApp *', { exact: true })).toBeVisible();
   await page.getByLabel('Pelanggan lama', { exact: true }).check();
   await expect(page.getByLabel('Cari pelanggan')).toBeVisible();
@@ -140,7 +147,7 @@ test('inline new customer validation failure keeps order form', async ({ page })
   page.on('request', r => { const key = r.headers()['idempotency-key']; if (key) keys.add(key); });
   await login(page);
   await openNewOrder(page);
-  await page.getByLabel('Pelanggan baru', { exact: true }).check();
+  await page.getByLabel('Pelanggan Baru', { exact: true }).check();
   await page.getByLabel('Nama *', { exact: true }).fill(`${prefix}-invalid`);
   await page.getByLabel('Nomor WhatsApp *', { exact: true }).fill('123');
   await fillShoe(page);
@@ -157,12 +164,14 @@ test('search ignores a stale response while the next query is debouncing', async
   let markRequested;
   const queries = [];
   const requested = new Promise(resolve => { markRequested = resolve; });
-  await page.route('**/api/**', async route => {
+  await page.route('**/api/v1/**', async route => {
     const url = new URL(route.request().url());
     let body = { data: [], page: { nextCursor: null } };
     if (url.pathname.endsWith('/auth/me')) body = { user: { id: 'fixture-owner', name: 'Fixture', role: 'OWNER' }, csrfToken: 'fixture-only' };
     else if (url.pathname.endsWith('/dashboard')) body = {};
     else if (url.pathname.endsWith('/services')) body.data = [service];
+    else if (url.pathname.endsWith('/pricing/plans')) body = [plan];
+    else if (url.pathname.endsWith('/pricing/preview')) body = { totalIdr: 50000, breakdown: [] };
     else if (url.pathname.endsWith('/customers')) {
       queries.push(url.searchParams.get('q'));
       if (url.searchParams.get('q') === 'old') {
@@ -220,12 +229,14 @@ test('read-only stored Narendra search: route validation, whitespace, case, norm
 
 test('ambiguous search requires explicit keyboard choice; pagination and errors remain accessible', async ({ page }) => {
   let fail = false; let submissions = 0;
-  await page.route('**/api/**', async route => {
+  await page.route('**/api/v1/**', async route => {
     const url = new URL(route.request().url());
     let body = { data: [], page: { nextCursor: null } };
     if (url.pathname.endsWith('/auth/me')) body = { user: { id: 'fixture-owner', name: 'Fixture', role: 'OWNER' }, csrfToken: 'fixture-only' };
     else if (url.pathname.endsWith('/dashboard')) body = {};
     else if (url.pathname.endsWith('/services')) body.data = [service];
+    else if (url.pathname.endsWith('/pricing/plans')) body = [plan];
+    else if (url.pathname.endsWith('/pricing/preview')) body = { totalIdr: 50000, breakdown: [] };
     else if (url.pathname.endsWith('/orders') && route.request().method() === 'POST') submissions++;
     else if (url.pathname.endsWith('/customers')) {
       if (fail) { await route.fulfill({ status: 500, json: { error: { message: 'Pencarian gagal' } } }); return; }

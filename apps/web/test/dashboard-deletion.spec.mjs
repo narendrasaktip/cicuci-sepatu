@@ -11,7 +11,7 @@ for (const presentation of ['classic', 'new']) test(`new dashboard follows delet
   let dashboardReads = 0, hold = false, release;
   const metricValues = () => ({ activeOrders: orders.length, waitingInspection: orders.filter(o => o.id === 'inspection').length, awaitingConsent: 0, inProgress: orders.filter(o => o.id === 'notifications').length, readyForPickup: orders.filter(o => o.id === 'paid').length, overdue: orders.length, revenueIdr: ledger.filter(p => orders.some(o => o.id === p.orderId)).reduce((n, p) => n + (p.kind === 'REFUND' ? -p.amountIdr : p.amountIdr), 0) });
   await context.addInitScript(value => localStorage.setItem('cicuci-presentation', value), presentation);
-  await context.route('**/api/**', async route => {
+  await context.route('**/api/v1/**', async route => {
     const req = route.request(), path = new URL(req.url()).pathname.replace('/api/v1', '');
     let body;
     if (req.method() === 'GET' && path === '/display-settings') body = { statusLabels: {} };
@@ -32,7 +32,7 @@ for (const presentation of ['classic', 'new']) test(`new dashboard follows delet
     await route.fulfill({ status: body === undefined ? 501 : 200, json: body ?? { error: { code: 'UNMOCKED' } } });
   });
   const metrics = page.getByRole('region', { name: 'Metrik operasional' });
-  const metric = name => metrics.locator('div').filter({ has: page.getByText(name, { exact: true }) }).locator('strong');
+  const metric = name => metrics.locator(':scope > *').filter({ has: page.getByText(name.replace('Sepatu', 'Pesanan'), { exact: true }) }).locator('strong');
   const trash = id => page.getByRole('button', { name: `Hapus pesanan TEST-${id}`, exact: true });
   async function confirmDeletion(id) {
     await trash(id).click();
@@ -48,28 +48,27 @@ for (const presentation of ['classic', 'new']) test(`new dashboard follows delet
   await expect(page.locator('main > header')).toHaveClass(/orders-topbar/);
   await expect(page.locator('.sidebar-brand')).toHaveCSS('padding', '0px');
   await expect(page.locator('.account button')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-  await expect(metrics.locator(':scope > div')).toHaveCount(7);
+  await expect(metrics.locator(':scope > *')).toHaveCount(7);
   await expect(page.getByRole('button', { name: 'Pesanan Baru', exact: true })).toHaveCount(1);
   await expect(metrics.locator('.metric-revenue')).toHaveCSS('grid-column', 'span 2');
   for (const width of [1440, 900, 390]) {
     await page.setViewportSize({ width, height: 1000 });
-    const cards = await metrics.locator(':scope > div').evaluateAll(nodes => nodes.map(node => {
+    const cards = await metrics.locator(':scope > *').evaluateAll(nodes => nodes.map(node => {
       const { x, y, width } = node.getBoundingClientRect();
       return { x, y, width };
     }));
     expect(cards[6].width).toBeGreaterThan(cards[0].width * 1.9);
     if (width >= 1100) expect(cards[6].y).toBe(cards[5].y);
     else expect(cards[6].y).toBeGreaterThan(cards[5].y);
-    const values = await metrics.locator(':scope > div > strong').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().y));
-    expect(values[0]).toBe(values[1]);
-    if (width >= 1100) expect(new Set(values.slice(0, 4)).size).toBe(1);
+    expect(cards[0].y).toBe(cards[1].y);
+    if (width >= 1100) expect(new Set(cards.slice(0, 4).map(card => card.y)).size).toBe(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
-  await page.getByRole('button', { name: 'Menu', exact: true }).click();
+  await page.getByRole('button', { name: 'Ringkas menu', exact: true }).click();
   await expect(page.getByRole('navigation', { name: 'Navigasi utama' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Keluar', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Menu', exact: true }).click();
-  await expect(page.locator('.account')).toBeHidden();
+  await page.getByRole('button', { name: 'Perluas menu', exact: true }).click();
+  await expect(page.locator('.account')).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 1000 });
   const revenue = await metric('Penerimaan bersih').textContent();
   hold = true;

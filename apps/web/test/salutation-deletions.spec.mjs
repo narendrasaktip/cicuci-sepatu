@@ -8,7 +8,7 @@ const order = { id: 'order', number: 'CS-FIXTURE', customer, items: [], payments
 async function mock(page, role = 'OWNER', failure = '') {
   const state = { customers: [{ ...customer }], calls: [], deleted: new Set() };
   // Every API request is fulfilled locally; never reaches the operational API.
-  await page.route('**/api/**', async route => {
+  await page.route('**/api/v1/**', async route => {
     const request = route.request(); const path = new URL(request.url()).pathname.replace('/api/v1', ''); const method = request.method();
     let body = { data: [], page: { nextCursor: null } };
     if (method !== 'GET') {
@@ -33,27 +33,31 @@ async function mock(page, role = 'OWNER', failure = '') {
   });
   return state;
 }
-async function tab(page, name) { await page.getByRole('navigation').getByRole('button', { name, exact: true }).click(); }
+async function tab(page, name) { await page.getByRole('navigation').getByRole('button', { name: name === 'Tarif pesanan' ? 'Tarif Pesanan' : name, exact: true }).click(); }
+function deleteButton(page, name) {
+  const labels = { 'Hapus pelanggan': 'Hapus permanen pelanggan Fixture', 'Hapus pesanan': 'Hapus pesanan CS-FIXTURE', 'Hapus pengguna': 'Hapus pengguna Other fixture', 'Hapus tarif': 'Hapus tarif Fixture tariff' };
+  return page.getByRole('button', { name: labels[name] ?? name, exact: true }).filter({ visible: true });
+}
 
 test('customer create defaults Kak; edit supports Bu; inline intake persists Pak', async ({ page }) => {
   const state = await mock(page); await page.goto(`${origin}/admin`); await tab(page, 'Pelanggan');
-  await page.getByRole('button', { name: 'Pelanggan baru', exact: true }).click();
+  await page.getByRole('button', { name: 'Pelanggan Baru', exact: true }).click();
   let dialog = page.getByRole('dialog'); await expect(dialog.getByLabel('Sapaan')).toHaveValue('Kak');
   await dialog.getByLabel('Nama', { exact: false }).fill('New fixture');
   await dialog.getByLabel('Nomor WhatsApp').fill('081111111112');
   await dialog.getByRole('button', { name: 'Konfirmasi', exact: true }).click();
   await expect(dialog).toHaveCount(0); expect(state.calls.at(-1).input.salutation).toBe('Kak');
-  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Pak Fixture', exact: true }) }).getByRole('button', { name: 'Ubah', exact: true }).click();
+  await page.getByRole('button', { name: 'Ubah Pelanggan Fixture', exact: true }).filter({ visible: true }).click();
   dialog = page.getByRole('dialog'); await expect(dialog.getByLabel('Sapaan')).toHaveValue('Pak');
   await dialog.getByLabel('Sapaan').selectOption('Bu'); await dialog.getByRole('button', { name: 'Konfirmasi', exact: true }).click();
   await expect(dialog).toHaveCount(0); expect(state.calls.at(-1).input.salutation).toBe('Bu');
-  await tab(page, 'Pesanan'); await page.getByRole('button', { name: 'Pesanan baru', exact: true }).click();
-  await page.getByLabel('Pelanggan baru', { exact: true }).check();
+  await tab(page, 'Pesanan'); await page.getByRole('button', { name: 'Pesanan Baru', exact: true }).click();
+  await page.getByLabel('Pelanggan Baru', { exact: true }).check();
   await expect(page.getByLabel('Sapaan', { exact: true })).toHaveValue('Kak');
   await page.getByLabel('Sapaan', { exact: true }).selectOption('Pak');
   await page.getByLabel('Nama *', { exact: true }).fill('Inline fixture');
   await page.getByLabel('Nomor WhatsApp *', { exact: true }).fill('081111111113');
-  await page.getByLabel('Tarif pesanan').selectOption('plan');
+  await page.getByRole('group', { name: 'Tarif dan estimasi' }).getByRole('combobox').selectOption('plan');
   await page.getByRole('group', { name: 'Sepatu 1', exact: true }).getByLabel('Merek *', { exact: true }).fill('Nike');
   await page.getByRole('button', { name: 'Buat pesanan', exact: true }).click();
   await expect.poll(() => state.calls.filter(c => c.path === '/orders').length).toBe(1);
@@ -63,17 +67,28 @@ test('customer create defaults Kak; edit supports Bu; inline intake persists Pak
 for (const [name, button, path] of [['Pelanggan', 'Hapus pelanggan', '/customers/customer'], ['Pesanan', 'Hapus pesanan', '/orders/order'], ['Tarif pesanan', 'Hapus tarif', '/pricing/plans/plan'], ['Pengguna', 'Hapus pengguna', '/users/other']]) {
   test(`owner explicit delete confirmation: ${name}`, async ({ page }) => {
     const state = await mock(page); await page.goto(`${origin}/admin`); await tab(page, name);
-    await expect(page.getByRole('button', { name: button, exact: true })).toHaveCount(1);
-    await page.getByRole('button', { name: button, exact: true }).click();
-    const dialog = page.getByRole('dialog'); await expect(dialog).toContainText('Tidak dapat dibatalkan'); await dialog.getByLabel('Ketik HAPUS untuk konfirmasi').fill('salah');
-    await dialog.getByRole('button', { name: 'Konfirmasi', exact: true }).click();
+    await expect(deleteButton(page, button)).toHaveCount(1);
+    if (name === 'Tarif pesanan') {
+      page.once('dialog', dialog => dialog.accept('salah'));
+      await deleteButton(page, button).click(); expect(state.calls).toEqual([]);
+      page.once('dialog', dialog => dialog.dismiss());
+      await deleteButton(page, button).click(); expect(state.calls).toEqual([]);
+      page.once('dialog', dialog => dialog.accept('HAPUS'));
+      await deleteButton(page, button).click();
+      await expect(deleteButton(page, button)).toHaveCount(0);
+      expect(state.calls).toEqual([{ path, method: 'DELETE', input: { confirmed: true, confirmation: 'HAPUS' } }]);
+      return;
+    }
+    await deleteButton(page, button).click();
+    const dialog = page.getByRole('dialog'); await expect(dialog).toContainText(/permanen/); await dialog.getByLabel('Ketik HAPUS untuk konfirmasi').fill('salah');
+    await dialog.getByRole('button', { name: 'Hapus permanen', exact: true }).click();
     await expect(dialog.getByRole('alert')).toContainText('Ketik HAPUS'); expect(state.calls).toEqual([]);
     await dialog.getByRole('button', { name: 'Batal', exact: true }).click(); expect(state.calls).toEqual([]);
-    await page.getByRole('button', { name: button, exact: true }).click();
+    await deleteButton(page, button).click();
     await page.getByRole('dialog').getByLabel('Ketik HAPUS untuk konfirmasi').fill('HAPUS');
-    await page.getByRole('dialog').getByRole('button', { name: 'Konfirmasi', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Hapus permanen', exact: true }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: button, exact: true })).toHaveCount(0);
+    await expect(deleteButton(page, button)).toHaveCount(0);
     expect(state.calls).toEqual([{ path, method: 'DELETE', input: { confirmed: true, confirmation: 'HAPUS' } }]);
   });
 }
@@ -93,8 +108,8 @@ for (const [name, button, code, message] of [
   ['Pengguna', 'Hapus pengguna', 'USER_HAS_HISTORY', 'riwayat operasional'],
 ]) test(`dependency rejection stays visible: ${code}`, async ({ page }) => {
   await mock(page, 'OWNER', code); await page.goto(`${origin}/admin`); await tab(page, name);
-  await page.getByRole('button', { name: button, exact: true }).click();
+  await deleteButton(page, button).click();
   const dialog = page.getByRole('dialog'); await dialog.getByLabel('Ketik HAPUS untuk konfirmasi').fill('HAPUS');
-  await dialog.getByRole('button', { name: 'Konfirmasi', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Hapus permanen', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText(message); await expect(dialog).toBeVisible();
 });

@@ -7,7 +7,7 @@ defineProps<{ owner: boolean }>();
 type Template = { event: string; name: string; body: string };
 const templates = ref<Template[]>([]); const selected = ref(''); const draft = ref<Template>();
 const placeholders = ref<Record<string, string>>({}); const preview = ref(''); const error = ref(''); const notice = ref(''); const busy = ref(false); const localOnly = ref(false); const encryptionReady = ref(false);
-const groups = [{ name: 'Pesanan', events: ['ORDER_RECEIVED'] }, { name: 'Pengerjaan dan persetujuan', events: ['QUEUED', 'AWAITING_CONSENT', 'CONSENT_REQUEST', 'WASHING', 'DRYING', 'FINISHING', 'REWORK'] }, { name: 'Pengambilan dan pengembalian', events: ['READY_FOR_PICKUP', 'HANDED_OVER', 'RETURN_PENDING', 'RETURNED', 'PICKUP_BILL_UNPAID', 'PICKUP_BILL_PAID'] }];
+const groups = [{ name: 'Pesanan', events: ['ORDER_RECEIVED'] }, { name: 'Pengerjaan dan persetujuan', events: ['QUEUED', 'AWAITING_CONSENT', 'CONSENT_REQUEST', 'WASHING', 'DRYING', 'FINISHING', 'REWORK'] }, { name: 'Pengambilan dan pengembalian', events: ['READY_FOR_PICKUP', 'HANDED_OVER', 'ORDER_HANDED_OVER', 'RETURN_PENDING', 'RETURNED', 'PICKUP_BILL_UNPAID', 'PICKUP_BILL_PAID'] }];
 const dirty = computed(() => { const saved = templates.value.find(t => t.event === draft.value?.event); return !!saved && !!draft.value && (saved.name !== draft.value.name || saved.body !== draft.value.body); });
 // ponytail: single-line bold and italic only; add nested formatting when needed.
 const previewParts = computed(() => preview.value.split(/(\*[^*\n]+\*|_[^_\n]+_)/g).map(text => ({ text: /^[*_]/.test(text) && text.length > 2 && text.endsWith(text[0]!) ? text.slice(1, -1) : text, format: /^\*[^*\n]+\*$/.test(text) ? 'bold' : /^_[^_\n]+_$/.test(text) ? 'italic' : '' })));
@@ -22,7 +22,7 @@ async function run(task: () => Promise<void>) { busy.value = true; error.value =
 onMounted(() => run(async () => {
   const data = await api<{ templates: Template[]; placeholders: Record<string, string>; localOnly: boolean; encryptionReady: boolean }>('/whatsapp-templates');
   // ponytail: hide intake and legacy-only stages; restore when exposed as normal workflow actions.
-  templates.value = data.templates.filter(t => !['RECEIVED', 'INSPECTION', 'PACKING', 'QC'].includes(t.event)); placeholders.value = data.placeholders; localOnly.value = data.localOnly; encryptionReady.value = data.encryptionReady; selected.value = templates.value[0]?.event ?? ''; choose();
+  templates.value = data.templates.filter(t => !['RECEIVED', 'INSPECTION', 'PACKING', 'QC', 'HANDED_OVER'].includes(t.event)); placeholders.value = data.placeholders; localOnly.value = data.localOnly; encryptionReady.value = data.encryptionReady; selected.value = templates.value[0]?.event ?? ''; choose();
 }));
 let previewRequest = 0;
 watch(() => [draft.value?.event, draft.value?.name, draft.value?.body], (_value, _old, onCleanup) => {
@@ -143,7 +143,13 @@ function save() { return run(async () => { if (!draft.value) return; const resul
                 @input="preview = ''; notice = ''"
               /></label>
               <p class="muted">
-                {{ draft.body.length }}/2000 karakter. Wajib memuat Cicuci Sepatu dan placeholder tautan tracking. URL literal, HTML, placeholder tidak dikenal ditolak.
+                {{ draft.body.length }}/2000 karakter. Wajib memuat Cicuci Sepatu dan {{ selected === 'ORDER_HANDED_OVER' ? '{url_ulasan} atau {url_tracking}' : '{url_tracking}' }}. URL literal, HTML, placeholder tidak dikenal ditolak.
+              </p>
+              <p
+                v-if="selected === 'ORDER_HANDED_OVER'"
+                class="notice"
+              >
+                Gunakan {url_ulasan} untuk tautan rating dan ulasan privat pelanggan. Tersedia setelah seluruh sepatu diserahkan, bukan pada Pesan Custom.
               </p>
               <p
                 v-if="draft.event === 'PICKUP_BILL_UNPAID' || draft.event === 'PICKUP_BILL_PAID'"
@@ -218,7 +224,7 @@ function save() { return run(async () => { if (!draft.value) return; const resul
             aria-label="Daftar placeholder"
           >
             <template
-              v-for="(help, name) in Object.fromEntries(Object.entries(placeholders).filter(([key]) => (key !== 'sisa_pembayaran' || selected === 'PICKUP_BILL_UNPAID') && (!['layanan_tarif', 'estimasi_total', 'estimasi_selesai'].includes(key) || selected === 'ORDER_RECEIVED') && (key !== 'detail_sepatu' || ['ORDER_RECEIVED', 'PICKUP_BILL_UNPAID', 'PICKUP_BILL_PAID'].includes(selected))))"
+              v-for="(help, name) in Object.fromEntries(Object.entries(placeholders).filter(([key]) => (key !== 'url_ulasan' || selected === 'ORDER_HANDED_OVER') && (key !== 'sisa_pembayaran' || selected === 'PICKUP_BILL_UNPAID') && (!['layanan_tarif', 'estimasi_total', 'estimasi_selesai'].includes(key) || selected === 'ORDER_RECEIVED') && (key !== 'detail_sepatu' || ['ORDER_RECEIVED', 'PICKUP_BILL_UNPAID', 'PICKUP_BILL_PAID'].includes(selected))))"
               :key="name"
             >
               <dt>

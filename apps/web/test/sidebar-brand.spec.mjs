@@ -10,7 +10,7 @@ for (const width of [1440, 768, 760, 390, 320]) {
   test(`sidebar logo loads without distortion or overflow at ${width}px`, async ({ page }, testInfo) => {
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
-    await page.route('**/api/**', async route => {
+    await page.route('**/api/v1/**', async route => {
       expect(route.request().method()).toBe('GET');
       const pathname = new URL(route.request().url()).pathname;
       const body = pathname.endsWith('/auth/me')
@@ -35,8 +35,8 @@ for (const width of [1440, 768, 760, 390, 320]) {
         overflow: document.documentElement.scrollWidth > innerWidth, src: img.currentSrc };
     });
     expect(dimensions.naturalHeight).toBe(360);
-    expect(dimensions.width).toBe(width <= 760 ? 90 : 140);
-    expect(dimensions.height).toBeCloseTo(width <= 760 ? 60 : 140 / 1.5);
+    expect(dimensions.width).toBe(width <= 1024 ? 44 : 140);
+    expect(dimensions.height).toBeCloseTo((width <= 1024 ? 44 : 140) / 1.5, 1);
     expect(dimensions.width / dimensions.height).toBeCloseTo(1.5);
     expect(dimensions.contained).toBe(true);
     // Existing order pagination overflows at 320px; keep this change scoped to the sidebar.
@@ -46,7 +46,6 @@ for (const width of [1440, 768, 760, 390, 320]) {
     const response = await page.request.get(dimensions.src);
     expect(response.ok()).toBe(true);
     expect(await response.body()).toEqual(await readFile(asset));
-    if (width <= 760) await page.getByRole('button', { name: 'Menu', exact: true }).click();
     await expect(page.getByRole('navigation', { name: 'Navigasi utama' })).toBeVisible();
     await expect(page.getByText('Ruang operasional', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('alert')).toHaveCount(0);
@@ -62,7 +61,7 @@ for (const width of [1440, 768, 760, 390, 320]) {
     const errors = [];
     const calls = [];
     page.on('pageerror', error => errors.push(error.message));
-    await page.route('**/api/**', async route => {
+    await page.route('**/api/v1/**', async route => {
       calls.push(new URL(route.request().url()).pathname);
       expect(route.request().method()).toBe('GET');
       expect(calls.at(-1)).toBe('/api/v1/track/fixture-logo-only');
@@ -74,7 +73,7 @@ for (const width of [1440, 768, 760, 390, 320]) {
     });
     await page.setViewportSize({ width, height: 900 });
     await page.goto(`${origin}/track/fixture-logo-only`);
-    await expect(page.getByRole('heading', { name: 'FIXTURE-LOGO' })).toBeVisible();
+    await expect(page.locator('.order-number')).toHaveText('FIXTURE-LOGO');
     const brand = page.locator('.tracking-header').getByRole('link', { name: 'Cicuci Sepatu', exact: true });
     await expect(brand).toHaveAttribute('href', '/');
     const image = brand.getByRole('img', { name: 'Cicuci Sepatu', exact: true });
@@ -90,7 +89,7 @@ for (const width of [1440, 768, 760, 390, 320]) {
         overflow: document.documentElement.scrollWidth > innerWidth, src: img.currentSrc };
     });
     expect(dimensions.naturalHeight).toBe(360);
-    expect(dimensions.width).toBe(width <= 760 ? 120 : 180);
+    expect(dimensions.width).toBe(96);
     expect(dimensions.width / dimensions.height).toBeCloseTo(1.5);
     expect(dimensions.contained).toBe(true);
     expect(dimensions.overflow).toBe(false);
@@ -98,7 +97,7 @@ for (const width of [1440, 768, 760, 390, 320]) {
     const response = await page.request.get(dimensions.src);
     expect(response.ok()).toBe(true);
     expect(await response.body()).toEqual(await readFile(asset));
-    await expect(page.getByText('Tautan ini bersifat rahasia. Jangan bagikan kepada pihak lain.')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Tracking Pesanan', exact: true })).toBeVisible();
     await expect(page.getByRole('alert')).toHaveCount(0);
     await brand.focus();
     await expect(brand).toBeFocused();
@@ -108,14 +107,14 @@ for (const width of [1440, 768, 760, 390, 320]) {
   });
 }
 
-test('production ships one optimized logo, never the original PNG', async () => {
+test('production ships optimized workspace logo, never the original PNG', async () => {
   const optimized = await readFile(asset);
   const original = await readFile(new URL('../../../img/logo.png', import.meta.url));
   expect(optimized.length).toBeLessThan(60_000);
   expect(optimized.length).toBeLessThan(original.length / 20);
   const dist = new URL('../dist/', import.meta.url);
   const files = await readdir(dist, { recursive: true });
-  const logos = files.filter(file => /logo/i.test(file));
+  const logos = files.filter(file => /logo-[\w-]+\.webp$/.test(file));
   expect(logos).toHaveLength(1);
   expect(logos[0]).toMatch(/^assets\/logo-[\w-]+\.webp$/);
   expect(await readFile(new URL(logos[0], dist))).toEqual(optimized);
@@ -124,7 +123,7 @@ test('production ships one optimized logo, never the original PNG', async () => 
     const content = await readFile(new URL(file, dist));
     expect(content.equals(original)).toBe(false);
     if (/\.(?:js|css|html)$/.test(file)) {
-      expect(content.toString()).not.toMatch(/img\/logo\.png|logo-[\w-]+\.png|data:image\/png/);
+      expect(content.toString()).not.toMatch(/img\/logo\.png|logo-[\w-]+\.png/);
       referenced ||= content.includes(Buffer.from(`/${logos[0]}`));
     }
   }

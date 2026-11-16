@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { defaultTrackingStages, handoverLabels, statusName } from '../services/domain';
+import { adminOrderStatus, orderStatusCode, orderStatusTone, defaultTrackingStages, handoverLabels } from '../services/domain';
 import logo from '../assets/logo.webp';
 import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue';
 import thirdPartyNotices from '../assets/THIRD_PARTY_NOTICES.txt?url';
@@ -8,14 +8,17 @@ import { auditAction, auditContext, date, label, money, orderNotificationFeedbac
 import ActionDialog, { type Field } from './ActionDialog.vue';
 import CreateOrder from './CreateOrder.vue';
 import NamedPlans from './NamedPlans.vue';
+import Feedback from './Feedback.vue';
 import WhatsAppTemplates from './WhatsAppTemplates.vue';
 import WhatsAppBroadcast from './WhatsAppBroadcast.vue';
 import WhatsAppConnection from './WhatsAppConnection.vue';
 import OrderDetail from './OrderDetail.vue';
 import OutlineIcon from './OutlineIcon.vue';
+import { provideUnsavedGuards } from '../services/unsaved';
 import '../new-theme.css';
 const props = defineProps<{ user: User }>(); const emit = defineEmits<{ logout: [] }>();
-const menuOpen = ref(false);
+const canLeaveChildren = provideUnsavedGuards();
+function canLeave() { return (!settingsDirty.value || window.confirm('Pengaturan belum disimpan. Tinggalkan halaman?')) && canLeaveChildren(); }
 const waConnection = ref<'unknown' | 'connected' | 'disconnected'>('unknown');
 let waTimer: ReturnType<typeof setTimeout> | undefined; let waDisposed = false;
 async function pollWhatsApp() {
@@ -28,21 +31,21 @@ onUnmounted(() => { waDisposed = true; clearTimeout(waTimer); });
 // ponytail: sole admin presentation; retain ref contract/old branches until component cleanup.
 const newPresentation = computed(() => true);
 provide('newPresentation', newPresentation);
-const icons = { dashboard: 'layout-dashboard', orders: 'clipboard-list', customers: 'users', services: 'coins', users: 'user-cog', settings: 'settings', notifications: 'message-circle', audit: 'history' } as const;
-type Tab = 'dashboard' | 'orders' | 'customers' | 'services' | 'users' | 'settings' | 'notifications' | 'audit';
-const names: Record<Tab, string> = { dashboard: 'Ringkasan', orders: 'Pesanan', customers: 'Pelanggan', services: 'Tarif pesanan', users: 'Pengguna', settings: 'Pengaturan', notifications: 'WhatsApp', audit: 'Audit' };
+const icons = { dashboard: 'layout-dashboard', orders: 'clipboard-list', customers: 'users', services: 'coins', users: 'user-cog', settings: 'settings', notifications: 'message-circle', feedback: 'star', audit: 'history' } as const;
+type Tab = 'dashboard' | 'orders' | 'customers' | 'services' | 'users' | 'settings' | 'notifications' | 'feedback' | 'audit';
+const names: Record<Tab, string> = { dashboard: 'Ringkasan', orders: 'Pesanan', customers: 'Pelanggan', services: 'Tarif pesanan', users: 'Pengguna', settings: 'Pengaturan', notifications: 'WhatsApp', feedback: 'Ulasan', audit: 'Audit' };
 const newNames: Record<Tab, string> = { ...names, dashboard: 'Dashboard', services: 'Tarif Pesanan' };
 const descriptions: Record<Tab, string> = {
   dashboard: 'Ringkasan operasional dan pesanan terbaru.', orders: 'Pantau progres, estimasi, dan pembayaran setiap pesanan.',
   customers: 'Kelola kontak, izin notifikasi, dan riwayat pesanan pelanggan.', services: 'Atur tarif, aturan paket, dan waktu penyelesaian pesanan.',
   users: 'Kelola akses tim sesuai peran dan tanggung jawab.', settings: 'Identitas toko, instruksi pengambilan, dan masa persetujuan risiko.',
-  notifications: 'Periksa koneksi dan kelola template pesan.', audit: 'Telusuri aktivitas sistem dan pengguna. Detail teknis tersedia di setiap catatan.',
+  notifications: 'Periksa koneksi dan kelola template pesan.', feedback: 'Baca ulasan pelanggan untuk setiap pesanan.', audit: 'Telusuri aktivitas sistem dan pengguna. Detail teknis tersedia di setiap catatan.',
 };
 const tabs = computed(() => (Object.keys(names) as Tab[]).filter(t => props.user.role === 'OWNER' || !['users', 'settings', 'audit'].includes(t)).filter(t => props.user.role !== 'STAFF' || ['dashboard', 'orders', 'services'].includes(t)));
 const historyOpen = ref(false);
 const waTab = ref<'connection' | 'templates' | 'broadcast' | 'history'>(props.user.role === 'OWNER' ? 'connection' : 'templates');
 const waTemplates = ref<InstanceType<typeof WhatsAppTemplates>>();
-function switchWaTab(value: typeof waTab.value) { waTab.value = value; historyOpen.value = value === 'history'; if (historyOpen.value) { cursors.value = []; void run(() => load()); } }
+function switchWaTab(value: typeof waTab.value) { if (!canLeave() || (waTemplates.value?.dirty && !window.confirm('Perubahan template belum disimpan. Tinggalkan halaman?'))) return; waTab.value = value; historyOpen.value = value === 'history'; syncUrl(); if (historyOpen.value) { cursors.value = []; void run(() => load()); } }
 const legacyServicesOpen = ref(false);
 const tab = ref<Tab>('dashboard'); const busy = ref(false); const error = ref(''); const notice = ref(''); const q = ref(''); const appliedCustomerQuery = ref(''); const status = ref(''); const appliedOrderFilter = ref(false); const cursor = ref<string | null>(null); const cursors = ref<string[]>([]);
 watch(notice, (value, _previous, onCleanup) => {
@@ -83,11 +86,14 @@ function correlate(requestId: string) { auditFilters.value = { ...emptyAuditFilt
 function resetAudit() { auditFilters.value = { ...emptyAuditFilters }; search(); }
 const metrics = ref<Record<string, number>>({}); const from = ref(''); const to = ref(''); const settings = ref({ name: '', pickupInstructions: '', consentHours: 48, publicOrigin: 'http://127.0.0.1:5173', statusLabels: {} as Record<string, string>, defaultStatusLabels: {} as Record<string, string>, trackingStages: structuredClone(defaultTrackingStages), trackingStagesVersion: 0 });
 const settingsAvailable = ref(false);
+const savedSettings = ref('');
+const settingsDirty = computed(() => tab.value === 'settings' && !!savedSettings.value && JSON.stringify(settings.value) !== savedSettings.value);
 const statusLabels = ref<Record<string, string>>({});
 provide('statusLabels', statusLabels);
 const dialog = ref<{ title: string; description?: string; fields: Field[]; submit: (v: Record<string, string | number | boolean>) => Promise<void> }>();
 async function run(task: () => Promise<void>) { busy.value = true; error.value = ''; notice.value = ''; try { await task(); } catch (e) { error.value = e instanceof Error ? e.message : 'Permintaan gagal.'; } finally { busy.value = false; } }
 async function load(pageCursor = '') {
+  if (tab.value === 'feedback') return;
   const params = new URLSearchParams({ limit: '25' }); if (pageCursor) params.set('cursor', pageCursor); const query = tab.value === 'customers' ? appliedCustomerQuery.value : q.value; if (query && tab.value !== 'audit') params.set('q', query);
   if (tab.value === 'dashboard') { metrics.value = {}; const range = new URLSearchParams(); if (from.value) range.set('from', new Date(from.value).toISOString()); if (to.value) range.set('to', new Date(to.value).toISOString()); metrics.value = await api(`/dashboard?${range}`); }
   const route = tab.value === 'dashboard' ? 'orders' : tab.value;
@@ -96,7 +102,7 @@ async function load(pageCursor = '') {
     const saved = await api<Partial<typeof settings.value>>('/settings');
     settings.value = { ...settings.value, ...saved, trackingStages: Array.isArray(saved.trackingStages) ? saved.trackingStages : structuredClone(defaultTrackingStages), trackingStagesVersion: saved.trackingStagesVersion ?? 0 };
     settingsAvailable.value = saved.trackingStagesVersion === 1 && Array.isArray(saved.trackingStages);
-    statusLabels.value = settings.value.statusLabels; return;
+    statusLabels.value = settings.value.statusLabels; savedSettings.value = JSON.stringify(settings.value); return;
   }
   if (route === 'orders') { if (status.value === 'OVERDUE') params.set('overdue', 'true'); else if (status.value) params.set('status', status.value); if (orderSort.value) { params.set('sort', orderSort.value); params.set('direction', orderDirection.value); } }
   if (route === 'notifications' && status.value) params.set('status', status.value);
@@ -114,8 +120,9 @@ async function load(pageCursor = '') {
   if (route === 'notifications' && historyOpen.value) notifications.value = await list<Notification>();
   if (route === 'audit') audit.value = await list<(typeof audit.value)[number]>();
 }
-function navigate(value: Tab) { if (tab.value === 'notifications' && value !== tab.value && waTemplates.value?.dirty && !window.confirm('Perubahan template belum disimpan. Tinggalkan halaman?')) return; const focusContent = menuOpen.value; menuOpen.value = false; tab.value = value; q.value = ''; appliedCustomerQuery.value = ''; status.value = ''; cursors.value = []; selected.value = ''; creating.value = false; customer.value = undefined; auditFilters.value = { ...emptyAuditFilters }; appliedAuditFilters.value = { ...emptyAuditFilters }; run(() => load()); if (focusContent) nextTick(() => document.getElementById('main-content')?.focus()); }
+function navigate(value: Tab, initialStatus = '') { if (!canLeave()) return; if (tab.value === 'notifications' && value !== tab.value && waTemplates.value?.dirty && !window.confirm('Perubahan template belum disimpan. Tinggalkan halaman?')) return; tab.value = value; q.value = ''; appliedCustomerQuery.value = ''; status.value = initialStatus; cursors.value = []; selected.value = ''; creating.value = false; customer.value = undefined; auditFilters.value = { ...emptyAuditFilters }; appliedAuditFilters.value = { ...emptyAuditFilters }; syncUrl(); run(() => load()); }
 function search() {
+  if (tab.value === 'dashboard' && from.value && to.value && new Date(from.value) > new Date(to.value)) { error.value = 'Waktu mulai harus sebelum waktu akhir.'; return; }
   if (tab.value === 'audit') {
     if (auditFilters.value.from && auditFilters.value.to && new Date(auditFilters.value.from) > new Date(auditFilters.value.to)) { error.value = 'Waktu mulai harus sebelum waktu akhir.'; return; }
     appliedAuditFilters.value = { ...auditFilters.value };
@@ -169,14 +176,35 @@ function editUser(u?: User) { mutation(u ? 'Ubah Pengguna' : 'Pengguna Baru', [{
 function saveSettings() { if (!settingsAvailable.value) return; mutation('Simpan pengaturan toko', [], '/settings', 'PATCH', () => ({ name: settings.value.name, pickupInstructions: settings.value.pickupInstructions, consentHours: Number(settings.value.consentHours), publicOrigin: settings.value.publicOrigin }), 'Perubahan masa persetujuan berlaku untuk token baru, bukan token lama.'); }
 const orderFeedback = ref<{ id: string; text: string }>();
 function created(order: Order) { notice.value = 'Pesanan tersimpan.'; orderFeedback.value = { id: order.id, text: orderNotificationFeedback(order.notification) }; creating.value = false; selected.value = order.id; initialToken.value = order.trackingToken ?? ''; }
-function openOrder(id: string) { customer.value = undefined; initialToken.value = ''; selected.value = id; }
-const metricNames: Record<string, string> = { activeOrders: 'Pesanan aktif', waitingInspection: 'Sepatu menunggu inspeksi', awaitingConsent: 'Sepatu perlu persetujuan', inProgress: 'Sepatu diproses', readyForPickup: 'Sepatu siap diambil', overdue: 'Pesanan terlambat', revenueIdr: 'Penerimaan bersih' };
-const orderStatuses = ['WAITING_INSPECTION', 'AWAITING_CONSENT', 'QUEUED', 'IN_PROGRESS', 'READY_FOR_PICKUP', 'RETURN_PENDING', 'COMPLETED'];
+function openOrder(id: string) { if (!canLeave()) return; customer.value = undefined; initialToken.value = ''; selected.value = id; syncUrl(); }
+const routeNames: Record<Tab, string> = { dashboard: 'dashboard', orders: 'orders', customers: 'customers', services: 'pricing', users: 'users', settings: 'settings', notifications: 'whatsapp', feedback: 'reviews', audit: 'audit' };
+function currentPath() { return selected.value ? `/admin/orders/${encodeURIComponent(selected.value)}` : creating.value ? '/admin/orders/new' : `/admin/${routeNames[tab.value]}${tab.value === 'notifications' ? `/${waTab.value}` : ''}`; }
+function syncUrl(replace = false) { if (window.location.pathname !== currentPath()) window.history[replace ? 'replaceState' : 'pushState'](null, '', currentPath()); }
+function readUrl() {
+  const [, , section, detail] = window.location.pathname.split('/');
+  const match = (Object.keys(routeNames) as Tab[]).find(key => routeNames[key] === section);
+  tab.value = match && tabs.value.includes(match) ? match : 'dashboard';
+  selected.value = tab.value === 'orders' && detail && detail !== 'new' && /^[a-zA-Z0-9_-]{1,100}$/.test(detail) ? detail : '';
+  creating.value = tab.value === 'orders' && detail === 'new' && props.user.role !== 'STAFF';
+  if (tab.value === 'notifications' && ['connection', 'templates', 'broadcast', 'history'].includes(detail ?? '')) waTab.value = props.user.role === 'OWNER' ? detail as typeof waTab.value : 'templates';
+  historyOpen.value = waTab.value === 'history'; syncUrl(true);
+}
+function popRoute() { if (!canLeave() || (waTemplates.value?.dirty && !window.confirm('Perubahan template belum disimpan. Tinggalkan halaman?'))) { syncUrl(); return; } readUrl(); void run(() => load()); }
+function protectSettings(event: BeforeUnloadEvent) { if (settingsDirty.value) { event.preventDefault(); event.returnValue = ''; } }
+readUrl();
+onMounted(() => { window.addEventListener('popstate', popRoute); window.addEventListener('beforeunload', protectSettings); });
+onUnmounted(() => { window.removeEventListener('popstate', popRoute); window.removeEventListener('beforeunload', protectSettings); });
+watch([creating, selected], () => syncUrl());
+function metricFilter(key: string) { const filters: Record<string, string> = { activeOrders: 'ACTIVE', overdue: 'OVERDUE', waitingInspection: 'WAITING_INSPECTION', awaitingConsent: 'AWAITING_CONSENT', readyForPickup: 'READY_FOR_PICKUP', awaitingPayment: 'AWAITING_PAYMENT', inProgress: 'IN_PROGRESS' }; if (filters[key]) navigate('orders', filters[key]); }
+const metricNames: Record<string, string> = { activeOrders: 'Pesanan aktif', waitingInspection: 'Pesanan menunggu inspeksi', awaitingConsent: 'Pesanan perlu persetujuan', inProgress: 'Pesanan diproses', readyForPickup: 'Pesanan siap diambil', awaitingPayment: 'Pesanan menunggu pelunasan', overdue: 'Pesanan terlambat', revenueIdr: 'Penerimaan bersih' };
+const sidebarCollapsed = ref(false);
+function periodPreset(month = false) { const end = new Date(); const start = new Date(end); start.setHours(0, 0, 0, 0); if (month) start.setDate(1); const local = (value: Date) => new Date(value.getTime() - value.getTimezoneOffset() * 60000).toISOString().slice(0, 16); from.value = local(start); to.value = local(end); search(); }
+const orderStatuses = ['ACTIVE', 'WAITING_INSPECTION', 'AWAITING_CONSENT', 'QUEUED', 'IN_PROGRESS', 'AWAITING_PAYMENT', 'READY_FOR_PICKUP', 'RETURN_PENDING', 'REFUND_PENDING', 'COMPLETED'];
 </script>
 <template>
   <div
     class="app-shell"
-    :class="{ 'theme-new': true, 'menu-open': menuOpen }"
+    :class="{ 'theme-new': true, 'sidebar-collapsed': sidebarCollapsed }"
   >
     <div
       v-if="waConnection !== 'connected' && user.role === 'OWNER'"
@@ -194,37 +222,65 @@ const orderStatuses = ['WAITING_INSPECTION', 'AWAITING_CONSENT', 'QUEUED', 'IN_P
         alt="Cicuci Sepatu"
         width="540"
         height="360"
-      ></a><button
-        v-if="newPresentation"
-        class="mobile-menu secondary"
-        :aria-expanded="menuOpen"
+      ></a>
+      <button
+        class="sidebar-toggle secondary"
+        :aria-label="sidebarCollapsed ? 'Perluas menu' : 'Ringkas menu'"
+        :title="sidebarCollapsed ? 'Perluas menu' : 'Ringkas menu'"
+        :aria-expanded="!sidebarCollapsed"
         aria-controls="workspace-navigation"
-        @click="menuOpen = !menuOpen"
+        @click="sidebarCollapsed = !sidebarCollapsed"
       >
-        <OutlineIcon name="menu-2" /> Menu
+        <svg
+          class="outline-icon"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.75"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        ><path :d="sidebarCollapsed ? 'M9 6l6 6-6 6' : 'M15 6l-6 6 6 6'" /></svg>
+        <span class="nav-label">Ringkas menu</span>
       </button><nav
         id="workspace-navigation"
         aria-label="Navigasi utama"
-        @keydown.esc="menuOpen = false; ($event.currentTarget as HTMLElement).parentElement?.querySelector<HTMLButtonElement>('.mobile-menu')?.focus()"
       >
         <button
           v-for="item in tabs"
           :key="item"
           :class="{ active: tab === item }"
           :aria-current="tab === item ? 'page' : undefined"
+          :aria-label="newPresentation ? newNames[item] : names[item]"
+          :title="newPresentation ? newNames[item] : names[item]"
           @click="navigate(item)"
         >
           <OutlineIcon
             v-if="newPresentation"
             :name="icons[item]"
-          />{{ newPresentation ? newNames[item] : names[item] }}
+          /><span class="nav-label">{{ newPresentation ? newNames[item] : names[item] }}</span>
         </button>
       </nav><div class="account">
         <strong>{{ user.name }}</strong><p>{{ label(user.role) }}</p><button
           class="secondary"
+          aria-label="Keluar"
+          title="Keluar"
           @click="emit('logout')"
         >
-          Keluar
+          <svg
+            class="logout-icon outline-icon"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.75"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          ><path d="M9 5H5v14h4M13 8l4 4-4 4M9 12h12" /></svg><span class="nav-label">Keluar</span>
         </button><a
           v-if="newPresentation"
           class="theme-attribution"
@@ -237,13 +293,13 @@ const orderStatuses = ['WAITING_INSPECTION', 'AWAITING_CONSENT', 'QUEUED', 'IN_P
     <main
       id="main-content"
       class="workspace"
-      :class="{ 'orders-workspace': ['dashboard', 'orders', 'customers', 'users', 'services', 'settings'].includes(tab) || creating || selected }"
+      :class="{ 'orders-workspace': ['dashboard', 'orders', 'customers', 'users', 'services', 'settings', 'feedback'].includes(tab) || creating || selected }"
       :tabindex="newPresentation ? -1 : undefined"
     >
       <header
         v-if="!newPresentation || !selected"
         class="topbar"
-        :class="{ 'orders-topbar': newPresentation && !selected && (['dashboard', 'orders', 'customers', 'users', 'services', 'notifications', 'settings'].includes(tab) || creating) }"
+        :class="{ 'orders-topbar': newPresentation && !selected && (['dashboard', 'orders', 'customers', 'users', 'services', 'notifications', 'settings', 'feedback'].includes(tab) || creating) }"
       >
         <div>
           <p class="eyebrow">
@@ -331,20 +387,39 @@ const orderStatuses = ['WAITING_INSPECTION', 'AWAITING_CONSENT', 'QUEUED', 'IN_P
           ></label><button :disabled="busy">
             {{ newPresentation ? 'Terapkan Periode' : 'Terapkan periode' }}
           </button>
+          <button
+            type="button"
+            class="secondary"
+            :disabled="busy"
+            @click="periodPreset()"
+          >
+            Hari Ini
+          </button><button
+            type="button"
+            class="secondary"
+            :disabled="busy"
+            @click="periodPreset(true)"
+          >
+            Bulan Ini
+          </button>
+          <small>Periode hanya untuk penerimaan bersih. Angka operasional menunjukkan kondisi saat ini.</small>
         </form>
         <section
           v-if="tab === 'dashboard'"
           class="metrics"
           aria-label="Metrik operasional"
         >
-          <div
+          <component
+            :is="key === 'revenueIdr' ? 'div' : 'button'"
             v-for="(value, key) in metrics"
             :key="key"
+            :type="key === 'revenueIdr' ? undefined : 'button'"
             :class="{ 'metric-revenue': key === 'revenueIdr' }"
+            @click="metricFilter(String(key))"
           >
             <span>{{ metricNames[key] ?? key }}</span><strong>{{ key === 'revenueIdr' ? money(value) : value }}</strong>
             <small v-if="key === 'revenueIdr'">Pembayaran dikurangi refund dari pesanan yang masih ada.</small>
-          </div>
+          </component>
         </section>
         <template v-if="tab === 'settings'">
           <form
@@ -386,6 +461,10 @@ const orderStatuses = ['WAITING_INSPECTION', 'AWAITING_CONSENT', 'QUEUED', 'IN_P
             </button>
           </form>
         </template>
+        <Feedback
+          v-else-if="tab === 'feedback' && (user.role === 'OWNER' || user.role === 'ADMIN')"
+          @open-order="openOrder"
+        />
         <template v-else>
           <nav
             v-if="tab === 'notifications'"
@@ -408,6 +487,14 @@ const orderStatuses = ['WAITING_INSPECTION', 'AWAITING_CONSENT', 'QUEUED', 'IN_P
               @click="switchWaTab('templates')"
             >
               Template Pesan
+            </button>
+            <button
+              type="button"
+              :class="{ secondary: waTab !== 'history' }"
+              :aria-current="waTab === 'history' ? 'page' : undefined"
+              @click="switchWaTab('history')"
+            >
+              Riwayat Pengiriman
             </button>
             <button
               v-if="user.role === 'OWNER'"
@@ -471,7 +558,7 @@ const orderStatuses = ['WAITING_INSPECTION', 'AWAITING_CONSENT', 'QUEUED', 'IN_P
               v-for="value in tab === 'notifications' ? ['PENDING', 'PROCESSING', 'SIMULATED', 'FAILED', 'SKIPPED', 'SENT'] : orderStatuses"
               :key="value"
               :value="value"
-            >{{ statusName(statusLabels, 'admin', value) }}</option><option
+            >{{ tab === 'notifications' ? label(value) : adminOrderStatus({ aggregateStatus: value, balanceIdr: 0 }, statusLabels) }}</option><option
               v-if="['orders', 'dashboard'].includes(tab)"
               value="OVERDUE"
             >Hanya Terlambat</option></select></label><button :disabled="busy">
@@ -486,6 +573,23 @@ const orderStatuses = ['WAITING_INSPECTION', 'AWAITING_CONSENT', 'QUEUED', 'IN_P
               Reset
             </button>
           </form>
+          <div
+            v-if="tab === 'orders'"
+            class="actions quick-order-filters"
+            role="group"
+            aria-label="Filter cepat pesanan"
+          >
+            <button
+              v-for="filter in [{ value: '', name: 'Semua' }, { value: 'OVERDUE', name: 'Terlambat' }, { value: 'AWAITING_CONSENT', name: 'Perlu Persetujuan' }, { value: 'AWAITING_PAYMENT', name: 'Menunggu Pelunasan' }, { value: 'READY_FOR_PICKUP', name: 'Siap Diambil' }]"
+              :key="filter.value"
+              class="secondary"
+              :aria-pressed="status === filter.value"
+              :disabled="busy"
+              @click="status = filter.value; search()"
+            >
+              {{ filter.name }}
+            </button>
+          </div>
           <p
             v-if="busy"
             role="status"
@@ -551,8 +655,9 @@ const orderStatuses = ['WAITING_INSPECTION', 'AWAITING_CONSENT', 'QUEUED', 'IN_P
                   </td><td data-label="Status">
                     <span
                       class="badge order-status"
-                      :data-status="order.aggregateStatus"
-                    >{{ (statusName(statusLabels, 'admin', order.aggregateStatus) === 'Pemeriksaan · disetujui' ? 'Pemeriksaan Selesai' : statusName(statusLabels, 'admin', order.aggregateStatus).replaceAll(' · ', ' ')) }}</span>
+                      :data-status="orderStatusCode(order)"
+                      :data-tone="orderStatusTone(orderStatusCode(order))"
+                    >{{ (adminOrderStatus(order, statusLabels) === 'Pemeriksaan · Disetujui' ? 'Pemeriksaan Selesai' : adminOrderStatus(order, statusLabels).replaceAll(' · ', ' ')) }}</span>
                   </td><td data-label="Estimasi">
                     {{ date(order.estimatedCompletionAt) }}<p
                       v-if="order.aggregateStatus !== 'COMPLETED' && new Date(order.estimatedCompletionAt) < new Date()"
@@ -603,6 +708,9 @@ const orderStatuses = ['WAITING_INSPECTION', 'AWAITING_CONSENT', 'QUEUED', 'IN_P
             </table>
           </div>
           <template v-if="tab === 'customers'">
+            <p class="muted">
+              Catatan internal hanya untuk tim. Izin WhatsApp terpisah dari persetujuan risiko dan izin publikasi ulasan. Cari nomor sebelum menambah pelanggan agar tidak tercatat ganda.
+            </p>
             <dialog
               v-if="customer"
               ref="customerDialog"
@@ -690,8 +798,9 @@ const orderStatuses = ['WAITING_INSPECTION', 'AWAITING_CONSENT', 'QUEUED', 'IN_P
                     </button>
                     <span
                       class="badge order-status customer-order-status"
-                      :data-status="order.aggregateStatus"
-                    >{{ statusName(statusLabels, 'admin', order.aggregateStatus) }}</span>
+                      :data-status="orderStatusCode(order)"
+                      :data-tone="orderStatusTone(orderStatusCode(order))"
+                    >{{ adminOrderStatus(order, statusLabels) }}</span>
                   </li>
                 </ul>
                 <p
@@ -853,6 +962,9 @@ const orderStatuses = ['WAITING_INSPECTION', 'AWAITING_CONSENT', 'QUEUED', 'IN_P
             </details>
           </template>
           <template v-if="tab === 'users'">
+            <p class="muted">
+              Owner mengelola seluruh sistem. Admin mengelola operasional; Staff mengerjakan pesanan yang ditugaskan. Perubahan password, peran, atau penonaktifan mencabut sesi pengguna.
+            </p>
             <div
               v-if="newPresentation"
               class="table-wrap panel customer-table user-table"
@@ -866,7 +978,7 @@ const orderStatuses = ['WAITING_INSPECTION', 'AWAITING_CONSENT', 'QUEUED', 'IN_P
                 <thead>
                   <tr>
                     <th scope="col">
-                      ID
+                      No.
                     </th>
                     <th scope="col">
                       Nama
@@ -887,14 +999,11 @@ const orderStatuses = ['WAITING_INSPECTION', 'AWAITING_CONSENT', 'QUEUED', 'IN_P
                 </thead>
                 <tbody>
                   <tr
-                    v-for="item in users"
+                    v-for="(item, index) in users"
                     :key="item.id"
                   >
                     <td>
-                      <span
-                        :title="item.id"
-                        :aria-label="`ID lengkap: ${item.id}`"
-                      >{{ item.id.length > 4 ? '…' + item.id.slice(-4) : item.id }}</span>
+                      {{ cursors.length * 25 + index + 1 }}
                     </td>
                     <th scope="row">
                       {{ item.name }}
@@ -1043,6 +1152,31 @@ const orderStatuses = ['WAITING_INSPECTION', 'AWAITING_CONSENT', 'QUEUED', 'IN_P
             </section>
           </template>
           <template v-if="tab === 'audit'">
+            <div
+              class="actions"
+              role="group"
+              aria-label="Filter cepat audit"
+            >
+              <button
+                class="secondary"
+                :disabled="busy"
+                @click="auditFilters = { ...emptyAuditFilters, outcome: 'FAILED' }; search()"
+              >
+                Aktivitas Gagal
+              </button><button
+                class="secondary"
+                :disabled="busy"
+                @click="auditFilters = { ...emptyAuditFilters, action: 'LOGIN_FAILED' }; search()"
+              >
+                Login Gagal
+              </button><button
+                class="secondary"
+                :disabled="busy"
+                @click="resetAudit"
+              >
+                Semua Aktivitas
+              </button>
+            </div>
             <form
               class="panel filters audit-filters"
               @submit.prevent="search"
@@ -1116,7 +1250,12 @@ const orderStatuses = ['WAITING_INSPECTION', 'AWAITING_CONSENT', 'QUEUED', 'IN_P
                 >
                   <div class="audit-row">
                     <time :datetime="item.createdAt">{{ date(item.createdAt) }} WIB</time>
-                    <span class="audit-actor">{{ item.action === 'LOGIN_FAILED' ? 'Belum terautentikasi' : item.actorUser?.name ?? (item.actorUserId ? 'Pengguna lama' : 'Sistem') }}</span>
+                    <div class="audit-actor">
+                      <span>{{ item.action === 'LOGIN_FAILED' ? 'Belum terautentikasi' : item.actorUser?.name ?? (item.actorUserId ? 'Pengguna lama' : 'Sistem') }}</span><small
+                        v-if="item.action !== 'LOGIN_FAILED' && item.actorUser?.email"
+                        class="audit-actor-email"
+                      >{{ item.actorUser.email }}</small>
+                    </div>
                     <div class="audit-activity">
                       <strong>{{ auditAction(item.action) }}</strong>
                       <p v-if="item.action === 'LOGIN_FAILED' && auditText(item, 'attemptedIdentity')">

@@ -4,11 +4,15 @@ import { ApiError, currentUser, login, logout, type User } from './services/auth
 import logo from './assets/logo.webp';
 const AdminWorkspace = defineAsyncComponent(() => import('./components/AdminWorkspace.vue'));
 const PublicTracking = defineAsyncComponent(() => import('./components/PublicTracking.vue'));
+const PublicFeedback = defineAsyncComponent(() => import('./components/PublicFeedback.vue'));
+const PublicOrder = defineAsyncComponent(() => import('./components/PublicOrder.vue'));
 import PublicLanding from './components/PublicLanding.vue';
 const trackPath = window.location.pathname.match(/^\/track\/([^/]+)\/?$/);
-const adminPath = /^\/admin\/?$/.test(window.location.pathname);
-const token = trackPath?.[1] ?? '';
-document.title = trackPath ? 'Cicuci Tracking' : adminPath ? 'Cicuci Admin' : 'Cicuci Sepatu';
+const feedbackPath = window.location.pathname.match(/^\/feedback\/([^/]+)\/?$/);
+const adminPath = /^\/admin(?:\/|$)/.test(window.location.pathname);
+const orderPath = /^\/pesan\/?$/.test(window.location.pathname);
+const token = trackPath?.[1] ?? feedbackPath?.[1] ?? '';
+document.title = feedbackPath ? 'Ulasan · Cicuci Sepatu' : trackPath ? 'Cicuci Tracking' : adminPath ? 'Cicuci Admin' : orderPath ? 'Pesan · Cicuci Sepatu' : 'Cicuci Sepatu';
 const user = ref<User | null>(null); const email = ref(''); const password = ref(''); const error = ref(''); const busy = ref(true);
 function expired() { user.value = null; error.value = 'Sesi berakhir. Silakan masuk kembali.'; }
 onMounted(async () => { if (!adminPath) { busy.value = false; return; } window.addEventListener('session-expired', expired); try { user.value = await currentUser(); } catch (cause) { if (!(cause instanceof ApiError && cause.status === 401)) error.value = cause instanceof Error ? cause.message : 'Pemeriksaan sesi gagal.'; else error.value = ''; } finally { busy.value = false; } });
@@ -25,6 +29,11 @@ async function signOut() { busy.value = true; try { await logout(); user.value =
     v-if="trackPath"
     :token="token"
   />
+  <PublicFeedback
+    v-else-if="feedbackPath"
+    :token="token"
+  />
+  <PublicOrder v-else-if="orderPath" />
   <PublicLanding v-else-if="!adminPath" />
   <template v-else-if="user">
     <p

@@ -23,7 +23,7 @@ for (const width of [320, 1440]) for (const scenario of ['fast', 'late', 'edited
   if (scenario === 'legacy') { order.pricing = null; order.items[1].serviceName = 'Reguler'; delete order.items[1].risk; }
   if (scenario === 'nonzero') order.items[1].finalPriceIdr = 100;
   if (scenario === 'pending') order.pricing.stage = 'ESTIMATE';
-  await context.route('**/api/**', async route => {
+  await context.route('**/api/v1/**', async route => {
     if (route.request().method() === 'GET' && new URL(route.request().url()).pathname === '/api/v1/track/information-fixture') return route.fulfill({ json: order });
     unexpected.push(route.request().url()); return route.fulfill({ status: 501, json: { error: { code: 'UNMOCKED_API' } } });
   });
@@ -48,7 +48,7 @@ for (const width of [320, 1440]) for (const scenario of ['fast', 'late', 'edited
   await expect(info.locator('.completion')).toContainText('| 17.00 WIB.');
   await expect(info.locator('.progress-counts')).toHaveCSS('list-style-type', 'disc');
   await expect(info.locator('.progress-counts li')).toHaveText(['1 pasang sepatu selesai dicuci', `1 pasang sepatu tidak dicuci${scenario === 'nonzero' ? '' : ' — tanpa biaya pencucian'}`]);
-  await expect(info.locator('.customer-notes')).toContainText('Sepatu 2 (<em>Adidas</em>) — tidak dicuci');
+  await expect(info.locator('.customer-notes')).toContainText('Sepatu 2 (<em>Adidas</em>) — Tidak Dicuci');
   await expect(info.locator('.customer-notes em')).toHaveCount(0);
   await expect(info.locator('.customer-notes')).toContainText('Pencucian tidak dilanjutkan setelah pemeriksaan staf.');
   if (scenario !== 'legacy') await expect(info.locator('.customer-notes')).toContainText('Risiko publik asli: warna dapat memudar.');
@@ -103,7 +103,7 @@ for (const width of [320, 390, 1440]) for (const stage of ['ESTIMATE', 'FINAL'])
     ] },
     items: Array.from({ length: 4 }, (_, index) => ({ id: `shoe-${index}`, brand: 'Nike', serviceName: 'Normal', status: stage === 'ESTIMATE' ? 'RECEIVED' : 'READY_FOR_PICKUP', outcome: stage === 'ESTIMATE' ? null : 'APPROVED', finalPriceIdr: stage === 'ESTIMATE' ? null : 48750, photos: [], consents: [], timeline: [] })),
   };
-  await context.route('**/api/**', async route => {
+  await context.route('**/api/v1/**', async route => {
     if (route.request().method() === 'GET' && new URL(route.request().url()).pathname === '/api/v1/track/mixed-labels-fixture') return route.fulfill({ json: order });
     unexpected.push(route.request().url()); return route.fulfill({ status: 501, json: { error: { code: 'UNMOCKED_API' } } });
   });

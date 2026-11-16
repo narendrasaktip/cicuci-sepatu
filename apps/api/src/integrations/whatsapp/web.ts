@@ -91,13 +91,15 @@ export class WhatsAppWeb {
     return { delivery: 'submitted', messageId, actualOutbound: true, ...(messageId ? {} : { messageIdMissing: true }) };
   }
 }
-export async function createBrowserClient(): Promise<BrowserClient> {
+export async function createBrowserClient(root = authRoot): Promise<BrowserClient> {
   const { mkdir, chmod } = await import('node:fs/promises');
-  const root = authRoot;
   await mkdir(root, { recursive: true, mode: 0o700 }); await chmod(root, 0o700);
   const { default: library } = await import('whatsapp-web.js');
   const client = new library.Client({ authStrategy: new library.LocalAuth({ clientId: 'cicuci-owner', dataPath: root }), webVersionCache: { type: 'none' }, qrMaxRetries: 5, puppeteer: { headless: true, ...(process.env.WA_CHROME_PATH ? { executablePath: process.env.WA_CHROME_PATH } : {}) } });
   const send = client.sendMessage.bind(client);
+  const destroy = client.destroy.bind(client);
+  // puppeteer 25 removed isConnected(); whatsapp-web.js 1.34.x otherwise leaks Chromium.
+  client.destroy = async () => { await client.pupBrowser?.close(); await destroy(); };
   let busy = false;
   client.sendMessage = async (...args: Parameters<typeof send>) => {
     if (busy) throw new Error('SEND_PROBE_BUSY');

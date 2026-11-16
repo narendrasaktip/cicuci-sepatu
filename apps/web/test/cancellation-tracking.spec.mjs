@@ -10,7 +10,7 @@ for (const width of [320, 390, 1440]) for (const scenario of ['singles', 'bundle
     const total = all ? 0 : bundle ? 130000 : historic ? 86667 : 90000;
     const pricing = { version: 2, name: 'Promo', stage: pending ? 'ESTIMATE' : historic ? 'LOCKED' : 'FINAL', pairs, initialTotalIdr: 130000, originalTotalIdr: 130000, originalPairs: 3, totalIdr: total, basis: historic ? 'HISTORICAL_AGREEMENT' : 'CANCELLATION', excludedPairs: all ? 3 : 1, calculationMatches: !historic, breakdown: all || historic ? [] : [{ kind: scenario === 'per-pair' ? 'PER_PAIR' : 'PACKAGE', quantity: bundle ? 1 : 2, pairs: bundle ? 3 : 1, priceIdr: bundle ? 130000 : 45000, totalIdr: total }] };
     const order = { number: 'CS-CANCEL', estimatedCompletionAt: '2026-12-01T10:00:00Z', aggregateStatus: pending ? 'AWAITING_CONSENT' : 'QUEUED', pricing, totalIdr: total, paidIdr: 120000, balanceIdr: total - 120000, refundDueIdr: Math.max(0, 120000 - total), paymentStatus: total <= 120000 ? 'PAID' : 'PARTIAL', items: Array.from({ length: all ? 3 : pairs + 1 }, (_, n) => ({ id: String(n), brand: `Shoe ${n}`, model: '', color: '', serviceName: scenario === 'mixed' && n === 1 ? 'Reguler' : 'Fast', status: all || n === pairs ? 'RETURN_PENDING' : pending ? 'AWAITING_CONSENT' : 'QUEUED', outcome: all || n === pairs ? 'DECLINED' : pending ? 'NEEDS_CONSENT' : 'APPROVED', finalPriceIdr: 0, quotedPriceIdr: 0, consents: [], photos: [], timeline: [] })) };
-    await context.route('**/api/**', async route => {
+    await context.route('**/api/v1/**', async route => {
       if (route.request().method() === 'GET' && new URL(route.request().url()).pathname === '/api/v1/track/cancellation-fixture') return route.fulfill({ json: order });
       unexpected.push(route.request().url()); return route.fulfill({ status: 501, json: { error: { code: 'UNMOCKED_API' } } });
     });
@@ -30,7 +30,7 @@ for (const width of [320, 390, 1440]) for (const scenario of ['singles', 'bundle
     await expect(summary.getByText('Sebelum Pembatalan', { exact: true })).toHaveCount(0);
     if (width === 1440) for (const dt of await summary.locator('.summary-rows dt').all()) expect(await dt.evaluate(el => { const range = document.createRange(); range.selectNodeContents(el); return range.getClientRects().length; })).toBe(1);
     if (historic) { await expect(summary).not.toContainText('Mengikuti harga yang disepakati sebelumnya.'); await expect(summary).toContainText('Total mengikuti alokasi historis tersimpan'); }
-    else await expect(summary).toContainText('Kelayakan paket/promo dihitung ulang');
+    else await expect(summary.locator('.summary-total dt')).toHaveText(pending ? 'Estimasi Biaya' : 'Total Akhir');
     if (pending) { await expect(summary.getByText('Estimasi Biaya', { exact: true })).toBeVisible(); await expect(summary.getByText('Sisa Pembayaran', { exact: true })).toHaveCount(0); }
     if (!pending && total < 120000) await expect(summary).toContainText('Pengembalian belum dicatat');
     await expect(summary.getByText('Dibayar Bersih', { exact: true })).toBeVisible();
@@ -56,7 +56,7 @@ test('snapshot tariff shown once; refunded net remains net; no invented agreemen
   const unexpected = [], errors = [];
   page.on('pageerror', error => errors.push(error.message));
   const order = { number: 'CS-NET', aggregateStatus: 'QUEUED', totalIdr: 45000, paidIdr: 45000, balanceIdr: 0, refundDueIdr: 0, paymentStatus: 'PAID', pickupInstructions: 'Instruksi asli toko.', pricing: { version: 2, name: 'Tarif unik', stage: 'LOCKED', lockedAt: null, basis: 'INSPECTION', pairs: 1, initialTotalIdr: 90000, totalIdr: 45000 }, items: [{ id: 'shoe', brand: 'Nike', serviceName: 'Tarif unik', status: 'QUEUED', outcome: 'APPROVED', finalPriceIdr: 45000, consents: [], photos: [], timeline: [] }] };
-  await context.route('**/api/**', async route => {
+  await context.route('**/api/v1/**', async route => {
     if (route.request().method() === 'GET' && new URL(route.request().url()).pathname === '/api/v1/track/net-fixture') return route.fulfill({ json: order });
     unexpected.push(route.request().url()); return route.fulfill({ status: 501, json: { error: { code: 'UNMOCKED_API' } } });
   });
@@ -90,7 +90,7 @@ for (const width of [320, 1440]) for (const scenario of ['shown', 'bundle', 'net
     if (scenario === 'initial-only') { delete order.pricing.originalTotalIdr; delete order.pricing.originalPairs; }
     if (scenario === 'no-cancellation') Object.assign(order.items[1], { status: 'QUEUED', outcome: 'APPROVED', finalPriceIdr: 0 });
     if (scenario === 'nonzero-fee') order.items[1].finalPriceIdr = 10000;
-    await context.route('**/api/**', async route => {
+    await context.route('**/api/v1/**', async route => {
       if (route.request().method() === 'GET' && new URL(route.request().url()).pathname === '/api/v1/track/payment-clarity') return route.fulfill({ json: order });
       unexpected.push(route.request().url()); return route.fulfill({ status: 501, json: { error: { code: 'UNMOCKED_API' } } });
     });
@@ -110,7 +110,7 @@ for (const width of [320, 1440]) for (const scenario of ['shown', 'bundle', 'net
     if (reduction) await expect(row(bundle ? 'Penyesuaian Bersih' : '1 Pasang Tidak Dicuci')).toHaveText(`- ${money(original - total)}`);
     await expect(payment.locator('p').filter({ hasText: /Pasang Tidak Dicuci|selisih total tersimpan/i })).toHaveCount(0);
     await expect(page.locator('.summary-info .progress-counts')).toContainText(scenario === 'no-cancellation' ? '2 pasang sepatu menunggu pencucian' : '1 pasang sepatu tidak dicuci');
-    if (bundle && reduction) { await expect(row('1 Pasang Tidak Dicuci')).toHaveCount(0); await expect(payment).toContainText('Kelayakan paket/promo dihitung ulang'); }
+    if (bundle && reduction) { await expect(row('1 Pasang Tidak Dicuci')).toHaveCount(0); await expect(row('Penyesuaian Bersih')).toHaveText(`- ${money(original - total)}`); }
     await expect(row('Dibayar Bersih')).toHaveText(money(paid));
     if (scenario === 'refund-due') {
       await expect(row('Perlu Pengembalian')).toHaveText(`${money(80000)}Pengembalian belum dicatat.`);
