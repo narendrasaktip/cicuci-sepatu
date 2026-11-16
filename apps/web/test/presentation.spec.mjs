@@ -124,13 +124,10 @@ for (const role of ['OWNER', 'ADMIN', 'STAFF']) test(`advanced legacy services a
   if (role !== 'STAFF') {
     await navigate(page, 'WhatsApp');
     expect(state.calls.some(c => c.startsWith('/api/v1/notifications'))).toBe(false);
-    await page.getByRole('navigation', { name: 'Bagian WhatsApp' }).getByRole('button', { name: 'Riwayat Pengiriman', exact: true }).click();
-    await expect(page.getByText('fixture-only', { exact: false })).toBeVisible();
-    await page.getByText('Percobaan (1)', { exact: true }).click();
-    await expect(page.locator('pre')).toContainText('"actualOutbound": false');
-    await page.getByLabel('Status', { exact: true }).selectOption('SIMULATED');
-    await page.getByRole('button', { name: 'Terapkan / muat ulang', exact: true }).click();
-    await expect.poll(() => state.calls.some(c => c.includes('/notifications?') && c.includes('status=SIMULATED'))).toBe(true);
+    await expect(page.getByRole('navigation', { name: 'Bagian WhatsApp' }).getByRole('button', { name: 'Riwayat Pengiriman', exact: true })).toHaveCount(0);
+    await page.goto(`${origin}/admin/whatsapp/history`);
+    await expect(page).toHaveURL(/\/admin\/whatsapp\/(connection|templates)$/);
+    expect(state.calls.some(c => c.startsWith('/api/v1/notifications'))).toBe(false);
   } else await expect(page.getByRole('navigation', { name: 'Navigasi utama' }).getByRole('button', { name: 'WhatsApp', exact: true })).toHaveCount(0);
   expect(state.unexpected).toEqual([]);
 });

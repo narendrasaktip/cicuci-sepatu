@@ -58,10 +58,7 @@ for (const tab of ['Dashboard', 'Pesanan']) test(`${tab}: overdue is a status ch
   await check(() => navigation.getByRole('button', { name: tab === 'Dashboard' ? 'Pesanan' : 'Dashboard', exact: true }).click(), { sort: 'estimatedCompletionAt', direction: 'asc' });
   await expect(status).toHaveValue('');
   await navigation.getByRole('button', { name: 'WhatsApp', exact: true }).click();
-  await page.getByRole('button', { name: 'Riwayat Pengiriman', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Terapkan / muat ulang', exact: true })).toBeEnabled();
-  await expect(status.locator('option[value="OVERDUE"]')).toHaveCount(0);
-  await expect(status.locator('option')).toHaveText(['Semua Status', 'Menunggu Antrean', 'Sedang Diajukan Ke Browser', 'Simulasi Berhasil', 'Gagal', 'Dilewati', 'Diajukan Ke Browser (Belum Bukti Diterima)']);
+  await expect(page.getByRole('button', { name: 'Riwayat Pengiriman', exact: true })).toHaveCount(0);
   expect(queries.every(query => query.status !== 'OVERDUE')).toBe(true);
   expect(unexpected).toEqual([]);
 });

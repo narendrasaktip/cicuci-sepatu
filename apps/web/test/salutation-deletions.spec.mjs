@@ -68,6 +68,13 @@ for (const [name, button, path] of [['Pelanggan', 'Hapus pelanggan', '/customers
   test(`owner explicit delete confirmation: ${name}`, async ({ page }) => {
     const state = await mock(page); await page.goto(`${origin}/admin`); await tab(page, name);
     await expect(deleteButton(page, button)).toHaveCount(1);
+    if (name === 'Pesanan') {
+      await deleteButton(page, button).click();
+      await expect(deleteButton(page, button)).toHaveCount(0);
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      expect(state.calls).toEqual([{ path, method: 'DELETE', input: { confirmed: true, confirmation: 'HAPUS' } }]);
+      return;
+    }
     if (name === 'Tarif pesanan') {
       page.once('dialog', dialog => dialog.accept('salah'));
       await deleteButton(page, button).click(); expect(state.calls).toEqual([]);
@@ -109,6 +116,10 @@ for (const [name, button, code, message] of [
 ]) test(`dependency rejection stays visible: ${code}`, async ({ page }) => {
   await mock(page, 'OWNER', code); await page.goto(`${origin}/admin`); await tab(page, name);
   await deleteButton(page, button).click();
+  if (name === 'Pesanan') {
+    await expect(page.getByRole('alert')).toContainText(message);
+    return;
+  }
   const dialog = page.getByRole('dialog'); await dialog.getByLabel('Ketik HAPUS untuk konfirmasi').fill('HAPUS');
   await dialog.getByRole('button', { name: 'Hapus permanen', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText(message); await expect(dialog).toBeVisible();

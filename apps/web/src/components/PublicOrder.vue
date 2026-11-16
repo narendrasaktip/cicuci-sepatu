@@ -290,10 +290,10 @@ function submit() {
 </template>
 
 <style scoped>
-.order-page{min-height:100dvh;background:linear-gradient(145deg,#f7fbff,#e5f2ff);color:#102f5c;padding:0 20px;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-size:15px;font-weight:400;line-height:1.6}
+.order-page{min-height:100dvh;background:linear-gradient(145deg,#f7fbff,#e5f2ff);color:#102f5c;padding:16px 20px 0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-size:15px;font-weight:400;line-height:1.6}
 header{max-width:1040px;margin:auto;display:flex;align-items:center;justify-content:center;gap:16px;padding:12px 0}
 header img{object-fit:contain}a{color:inherit;text-underline-offset:4px}
-header{box-sizing:border-box;margin-top:16px;padding:8px 16px;background:#ffffffd9;border:1px solid #d9e8fa;border-radius:18px;box-shadow:0 3px 16px #173c6806}header>a:first-child{display:flex;align-items:center;flex-shrink:0}header img{display:block}
+header{box-sizing:border-box;margin-top:0;padding:8px 16px;background:#ffffffd9;border:1px solid #d9e8fa;border-radius:18px;box-shadow:0 3px 16px #173c6806}header>a:first-child{display:flex;align-items:center;flex-shrink:0}header img{display:block}
 main{max-width:620px;margin:24px auto 0;padding:clamp(20px,5vw,40px);background:white;border:1px solid #d9e8fa;border-radius:24px}
 h1{font-size:clamp(26px,5vw,36px);line-height:1.2;margin:12px 0}p{line-height:1.6}.eyebrow{font-weight:700;font-size:14px;color:#415f7d}
 form{display:grid;gap:12px;margin-top:28px}label{font-weight:600;font-size:14px;margin-top:8px}label span{font-weight:400}

@@ -157,6 +157,10 @@ function deleteEntity(path: string, name: string) {
     return { confirmed: true, confirmation: 'HAPUS' };
   }, 'Penghapusan permanen tidak dapat dibatalkan.');
 }
+function deleteOrder(id: string) {
+  if (busy.value || props.user.role !== 'OWNER') return;
+  void run(async () => { await api(`/orders/${id}`, 'DELETE', { confirmed: true, confirmation: 'HAPUS' }, false, crypto.randomUUID()); notice.value = 'Pesanan dihapus.'; await load(cursors.value.at(-1)); });
+}
 function deleteCustomer(id: string) {
   if (busy.value || props.user.role !== 'OWNER') return;
   mutation('Hapus permanen pelanggan dan semua pesanan', [{ key: 'confirmation', label: 'Ketik HAPUS untuk konfirmasi', required: true }], `/customers/${id}`, 'DELETE', v => {
@@ -186,7 +190,7 @@ function readUrl() {
   tab.value = match && tabs.value.includes(match) ? match : 'dashboard';
   selected.value = tab.value === 'orders' && detail && detail !== 'new' && /^[a-zA-Z0-9_-]{1,100}$/.test(detail) ? detail : '';
   creating.value = tab.value === 'orders' && detail === 'new' && props.user.role !== 'STAFF';
-  if (tab.value === 'notifications' && ['connection', 'templates', 'broadcast', 'history'].includes(detail ?? '')) waTab.value = props.user.role === 'OWNER' ? detail as typeof waTab.value : 'templates';
+  if (tab.value === 'notifications') waTab.value = props.user.role === 'OWNER' && ['connection', 'templates', 'broadcast'].includes(detail ?? '') ? detail as typeof waTab.value : props.user.role === 'OWNER' ? 'connection' : 'templates';
   historyOpen.value = waTab.value === 'history'; syncUrl(true);
 }
 function popRoute() { if (!canLeave() || (waTemplates.value?.dirty && !window.confirm('Perubahan template belum disimpan. Tinggalkan halaman?'))) { syncUrl(); return; } readUrl(); void run(() => load()); }
@@ -489,14 +493,6 @@ const orderStatuses = ['ACTIVE', 'WAITING_INSPECTION', 'AWAITING_CONSENT', 'QUEU
               Template Pesan
             </button>
             <button
-              type="button"
-              :class="{ secondary: waTab !== 'history' }"
-              :aria-current="waTab === 'history' ? 'page' : undefined"
-              @click="switchWaTab('history')"
-            >
-              Riwayat Pengiriman
-            </button>
-            <button
               v-if="user.role === 'OWNER'"
               type="button"
               :class="{ secondary: waTab !== 'broadcast' }"
@@ -646,7 +642,7 @@ const orderStatuses = ['ACTIVE', 'WAITING_INSPECTION', 'AWAITING_CONSENT', 'QUEU
                     </button><p>{{ order.itemCount }} Sepatu<br>Dibuat: {{ order.createdAt ? date(order.createdAt) : '-' }}</p><button
                       v-if="user.role === 'OWNER' && !newPresentation"
                       class="danger"
-                      @click="deleteEntity(`/orders/${order.id}`, order.number)"
+                      @click="deleteOrder(order.id)"
                     >
                       Hapus pesanan
                     </button>
@@ -676,7 +672,7 @@ const orderStatuses = ['ACTIVE', 'WAITING_INSPECTION', 'AWAITING_CONSENT', 'QUEU
                       class="danger icon-delete"
                       :title="`Hapus pesanan ${order.number}`"
                       :aria-label="`Hapus pesanan ${order.number}`"
-                      @click="deleteEntity(`/orders/${order.id}`, order.number)"
+                      @click="deleteOrder(order.id)"
                     >
                       <OutlineIcon name="trash" />
                     </button>

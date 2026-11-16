@@ -36,9 +36,6 @@ for (const presentation of ['classic', 'new']) test(`new dashboard follows delet
   const trash = id => page.getByRole('button', { name: `Hapus pesanan TEST-${id}`, exact: true });
   async function confirmDeletion(id) {
     await trash(id).click();
-    const dialog = page.getByRole('dialog');
-    await dialog.getByLabel('Ketik HAPUS untuk konfirmasi', { exact: false }).fill('HAPUS');
-    await dialog.getByRole('button', { name: 'Hapus permanen', exact: true }).click();
   }
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${process.env.TEST_WEB_ORIGIN ?? 'http://127.0.0.1:5173'}/admin`);
@@ -82,7 +79,6 @@ for (const presentation of ['classic', 'new']) test(`new dashboard follows delet
   await expect(page.getByRole('button', { name: 'TEST-inspection', exact: true })).toHaveCount(0);
   await confirmDeletion('notifications');
   await expect(page.getByRole('alert')).toContainText('NOTIFICATION_IN_PROGRESS');
-  await page.getByRole('dialog').getByRole('button', { name: 'Batal', exact: true }).click();
   await expect(metric('Pesanan aktif')).toHaveText('2');
   await expect(metric('Sepatu siap diambil')).toHaveText('1');
   await expect(metric('Penerimaan bersih')).toHaveText(revenue);
